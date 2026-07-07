@@ -10,39 +10,21 @@ import StatusSteps from '../components/ui/StatusSteps'
 import Modal from '../components/ui/Modal'
 import { ButtonLoader, SectionLoader } from '../components/ui/Spinner'
 import { useAsync } from '../hooks/useAsync'
-import {
-  customerService,
-  inquiryService,
-  saleService,
-  workshopService,
-  ntsaService,
-  dispatchService,
-} from '../services'
-import { CUSTOMER_TYPES } from '../constants'
+import { customerService, saleService } from '../services'
+import { SALE_FLOW_CASH, SALE_FLOW_CREDIT, SALE_TERMINAL_STATUSES } from '../constants'
 import { formatCurrency, formatDate } from '../utils/helpers'
 import { useForm } from 'react-hook-form'
 
 export default function CustomerDetails() {
   const { id } = useParams()
   const { data, loading, reload } = useAsync(async () => {
-    const [customer, inquiries, sales, workshops, ntsa, dispatches] = await Promise.all([
+    const [customer, sales] = await Promise.all([
       customerService.getById(id),
-      inquiryService.getAll(),
       saleService.getAll(),
-      workshopService.getAll(),
-      ntsaService.getAll(),
-      dispatchService.getAll(),
     ])
-    const customerInquiries = inquiries.filter((i) => i.customerId === id)
-    const customerSales = sales.filter((s) => s.customerId === id)
-    const saleIds = customerSales.map((s) => s.id)
     return {
       customer,
-      inquiries: customerInquiries,
-      sales: customerSales,
-      workshops: workshops.filter((w) => saleIds.includes(w.saleId)),
-      ntsa: ntsa.filter((n) => saleIds.includes(n.saleId)),
-      dispatches: dispatches.filter((d) => saleIds.includes(d.saleId)),
+      sales: sales.filter((s) => s.customerId === id),
     }
   }, [id])
 
@@ -62,7 +44,7 @@ export default function CustomerDetails() {
     )
   }
 
-  const { customer, inquiries, sales, workshops, ntsa, dispatches } = data
+  const { customer, sales } = data
   if (!customer) {
     return (
       <AppLayout>
@@ -72,31 +54,21 @@ export default function CustomerDetails() {
     )
   }
 
-  // Build the customer's status pipeline across the most advanced sale.
+  // Build the status pipeline from the most advanced sale.
   const latestSale = sales[0]
-  const latestInquiry = inquiries[0]
-  const workshop = latestSale ? workshops.find((w) => w.saleId === latestSale.id) : null
-  const ntsaProc = latestSale ? ntsa.find((n) => n.saleId === latestSale.id) : null
-  const dispatch = latestSale ? dispatches.find((d) => d.saleId === latestSale.id) : null
+  const flow = latestSale?.paymentMethod === 'Credit' ? SALE_FLOW_CREDIT : SALE_FLOW_CASH
+  const currentIdx = latestSale ? Math.max(flow.indexOf(latestSale.status), 0) : -1
 
-  const inquiryDone = !!latestInquiry && ['Converted', 'Cancelled'].includes(latestInquiry.status)
-  const inquiryActive = !!latestInquiry && !inquiryDone
-  const saleDone = !!latestSale
-  const saleActive = !!latestInquiry && inquiryDone && !saleDone
-  const wsDone = workshop?.status === 'Completed'
-  const wsActive = !!latestSale && !wsDone
-  const ntsaDone = ntsaProc?.status === 'Completed'
-  const ntsaActive = !!latestSale && wsDone && !ntsaDone
-  const dispatchDone = latestSale?.status === 'Completed' || !!dispatch
-  const dispatchActive = !!latestSale && ntsaDone && !dispatchDone
-
-  const pipeline = [
-    { label: 'Inquiry', status: inquiryDone ? 'done' : inquiryActive ? 'active' : 'pending' },
-    { label: 'Sale', status: saleDone ? 'done' : saleActive ? 'active' : 'pending' },
-    { label: 'Workshop', status: wsDone ? 'done' : wsActive ? 'active' : 'pending' },
-    { label: 'NTSA', status: ntsaDone ? 'done' : ntsaActive ? 'active' : 'pending' },
-    { label: 'Dispatch', status: dispatchDone ? 'done' : dispatchActive ? 'active' : 'pending' },
-  ]
+  const pipeline = flow.map((label, i) => ({
+    label,
+    status: !latestSale || latestSale.status === 'Loan Rejected'
+      ? 'pending'
+      : i < currentIdx
+        ? 'done'
+        : i === currentIdx
+          ? SALE_TERMINAL_STATUSES.includes(latestSale.status) ? 'done' : 'active'
+          : 'pending',
+  }))
 
   const openEdit = () => {
     reset(customer)
@@ -132,23 +104,18 @@ export default function CustomerDetails() {
       {/* Status pipeline */}
       <Card className="mb-4">
         <h3 className="mb-4 font-semibold text-slate-700">Status Pipeline</h3>
-        <StatusSteps steps={pipeline} />
-        {(latestInquiry || latestSale) && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-            {latestInquiry && (
-              <Link to={`/inquiries/${latestInquiry.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                Inquiry: <Badge variant={statusVariant(latestInquiry.status)}>{latestInquiry.status}</Badge>
-              </Link>
-            )}
-            {latestSale && (
+        {latestSale ? (
+          <>
+            <StatusSteps steps={pipeline} />
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
               <Link to={`/sales/${latestSale.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                Sale: <Badge variant={statusVariant(latestSale.status)}>{latestSale.status}</Badge>
+                Sale #{latestSale.id?.slice(-6)}: <Badge variant={statusVariant(latestSale.status)}>{latestSale.status}</Badge>
               </Link>
-            )}
-            {workshop && <span>Workshop: <Badge variant={statusVariant(workshop.status)}>{workshop.status}</Badge></span>}
-            {ntsaProc && <span>NTSA: <Badge variant={statusVariant(ntsaProc.status)}>{ntsaProc.status}</Badge></span>}
-            {dispatch && <span>Dispatch: <Badge variant="green">Completed</Badge></span>}
-          </div>
+              {latestSale.paymentMethod && <span>Method: <Badge variant={latestSale.paymentMethod === 'Cash' ? 'green' : 'blue'}>{latestSale.paymentMethod}</Badge></span>}
+            </div>
+          </>
+        ) : (
+          <p className="py-6 text-center text-sm text-slate-400">No sale lead yet.</p>
         )}
       </Card>
 
@@ -181,28 +148,7 @@ export default function CustomerDetails() {
         </Card>
 
         <Card className="lg:col-span-2">
-          <h3 className="mb-4 font-semibold text-slate-700">Inquiries ({inquiries.length})</h3>
-          {inquiries.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">No inquiries</p>
-          ) : (
-            <div className="space-y-2">
-              {inquiries.map((inq) => (
-                <Link
-                  key={inq.id}
-                  to={`/inquiries/${inq.id}`}
-                  className="flex items-center justify-between rounded-xl border border-slate-100 p-3 hover:bg-slate-50"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-slate-700">Inquiry #{inq.id?.slice(-6)}</p>
-                    <p className="text-xs text-slate-400">{formatDate(inq.createdAt)}</p>
-                  </div>
-                  <Badge variant="blue">{inq.status}</Badge>
-                </Link>
-              ))}
-            </div>
-          )}
-
-          <h3 className="mb-4 mt-6 font-semibold text-slate-700">Sales ({sales.length})</h3>
+          <h3 className="mb-4 font-semibold text-slate-700">Sales ({sales.length})</h3>
           {sales.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-400">No sales</p>
           ) : (
@@ -217,7 +163,7 @@ export default function CustomerDetails() {
                     <p className="text-sm font-medium text-slate-700">Sale #{s.id?.slice(-6)}</p>
                     <p className="text-xs text-slate-400">{formatCurrency(s.price)} · {formatDate(s.createdAt)}</p>
                   </div>
-                  <Badge variant="green">{s.status}</Badge>
+                  <Badge variant={statusVariant(s.status)}>{s.status}</Badge>
                 </Link>
               ))}
             </div>
@@ -256,7 +202,7 @@ export default function CustomerDetails() {
           <div>
             <label className="label">Customer Type</label>
             <select className="input" {...register('customerType')}>
-              {CUSTOMER_TYPES.map((t) => <option key={t}>{t}</option>)}
+              {CUSTOMER_TYPES_LOCAL.map((t) => <option key={t}>{t}</option>)}
             </select>
           </div>
           <div>
@@ -276,3 +222,5 @@ export default function CustomerDetails() {
     </AppLayout>
   )
 }
+
+const CUSTOMER_TYPES_LOCAL = ['Passenger', 'Cargo']

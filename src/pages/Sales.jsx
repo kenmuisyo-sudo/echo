@@ -8,6 +8,7 @@ import Badge, { statusVariant } from '../components/ui/Badge'
 import EmptyState from '../components/ui/EmptyState'
 import { useAsyncList } from '../hooks/useAsync'
 import { saleService, customerService, inventoryService } from '../services'
+import { SALE_STATUS } from '../constants'
 import { formatCurrency, formatDate } from '../utils/helpers'
 
 export default function Sales() {
@@ -29,7 +30,7 @@ export default function Sales() {
     return v ? `${v.model} (${v.color})` : '—'
   }
 
-  const statuses = ['All', 'Payment Pending', 'Payment Confirmed', 'Workshop', 'NTSA', 'Ready for Dispatch', 'Completed']
+  const statuses = ['All', ...SALE_STATUS]
   const filtered = filter === 'All' ? items : items.filter((s) => s.status === filter)
 
   if (loading) {
@@ -63,7 +64,7 @@ export default function Sales() {
         <div className="card">
           <EmptyState
             title="No sales found"
-            subtitle="Convert an inquiry to create a sale."
+            subtitle="Register a customer to start a sale lead."
           />
         </div>
       ) : (

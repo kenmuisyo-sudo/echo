@@ -7,15 +7,11 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Customers from './pages/Customers'
 import CustomerDetails from './pages/CustomerDetails'
-import Inquiries from './pages/Inquiries'
-import InquiryDetails from './pages/InquiryDetails'
 import Sales from './pages/Sales'
 import SaleDetails from './pages/SaleDetails'
 import Inventory from './pages/Inventory'
 import VehicleDetails from './pages/VehicleDetails'
 import Workshop from './pages/Workshop'
-import NTSA from './pages/NTSA'
-import Dispatch from './pages/Dispatch'
 import Reports from './pages/Reports'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
@@ -37,9 +33,6 @@ export default function App() {
       <Route path="/customers" element={<ProtectedRoute allowedRoles={ALL}><Customers /></ProtectedRoute>} />
       <Route path="/customers/:id" element={<ProtectedRoute allowedRoles={ALL}><CustomerDetails /></ProtectedRoute>} />
 
-      <Route path="/inquiries" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.SALES_AGENT]}><Inquiries /></ProtectedRoute>} />
-      <Route path="/inquiries/:id" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.SALES_AGENT]}><InquiryDetails /></ProtectedRoute>} />
-
       <Route path="/sales" element={<ProtectedRoute allowedRoles={ALL}><Sales /></ProtectedRoute>} />
       <Route path="/sales/:id" element={<ProtectedRoute allowedRoles={ALL}><SaleDetails /></ProtectedRoute>} />
 
@@ -47,10 +40,6 @@ export default function App() {
       <Route path="/inventory/:id" element={<ProtectedRoute allowedRoles={ALL}><VehicleDetails /></ProtectedRoute>} />
 
       <Route path="/workshop" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.WORKSHOP_OFFICER]}><Workshop /></ProtectedRoute>} />
-
-      <Route path="/ntsa" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.NTSA_OFFICER]}><NTSA /></ProtectedRoute>} />
-
-      <Route path="/dispatch" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.DISPATCH_OFFICER]}><Dispatch /></ProtectedRoute>} />
 
       <Route path="/reports" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.FINANCE_OFFICER]}><Reports /></ProtectedRoute>} />
 

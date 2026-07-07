@@ -7,7 +7,7 @@ import {
   FiTruck,
   FiShoppingCart,
   FiTool,
-  FiPackage,
+  FiDollarSign,
 } from 'react-icons/fi'
 import toast from 'react-hot-toast'
 import AppLayout from '../components/layouts/AppLayout'
@@ -22,7 +22,7 @@ import {
   customerService,
   inventoryService,
   workshopService,
-  dispatchService,
+  creditService,
 } from '../services'
 import { downloadFile, toCSV, formatCurrency, formatDate } from '../utils/helpers'
 
@@ -30,8 +30,8 @@ const REPORT_TYPES = [
   { key: 'sales', label: 'Sales Report', icon: FiShoppingCart },
   { key: 'customers', label: 'Customer Report', icon: FiUsers },
   { key: 'inventory', label: 'Inventory Report', icon: FiTruck },
+  { key: 'loans', label: 'Loan Report', icon: FiDollarSign },
   { key: 'workshop', label: 'Workshop Report', icon: FiTool },
-  { key: 'dispatch', label: 'Dispatch Report', icon: FiPackage },
 ]
 
 export default function Reports() {
@@ -40,14 +40,14 @@ export default function Reports() {
   const [columns, setColumns] = useState([])
 
   const { data, loading } = useAsync(async () => {
-    const [sales, customers, vehicles, workshop, dispatch] = await Promise.all([
+    const [sales, customers, vehicles, workshop, credit] = await Promise.all([
       saleService.getAll(),
       customerService.getAll(),
       inventoryService.getAll(),
       workshopService.getAll(),
-      dispatchService.getAll(),
+      creditService.getAll(),
     ])
-    return { sales, customers, vehicles, workshop, dispatch }
+    return { sales, customers, vehicles, workshop, credit }
   }, [])
 
   useEffect(() => {
@@ -70,10 +70,10 @@ export default function Reports() {
           customer: data.customers.find((c) => c.id === s.customerId)?.name || '-',
           vehicle: (() => {
             const v = data.vehicles.find((x) => x.id === s.vehicleId)
-            return v ? `${v.model} (${v.color})` : '-'
+            return v ? `${v.model} (${v.color})` : 'Not assigned'
           })(),
           price: formatCurrency(s.price),
-          paymentMethod: s.paymentMethod,
+          paymentMethod: s.paymentMethod || '-',
           status: s.status,
           date: formatDate(s.createdAt),
         }))
@@ -114,6 +114,25 @@ export default function Reports() {
           date: formatDate(v.createdAt),
         }))
         break
+      case 'loans':
+        cols = [
+          { key: 'saleId', label: 'Sale ID' },
+          { key: 'customer', label: 'Customer' },
+          { key: 'financier', label: 'Financier' },
+          { key: 'status', label: 'Loan Status' },
+          { key: 'submittedAt', label: 'Submitted' },
+        ]
+        r = data.credit.map((c) => {
+          const sale = data.sales.find((s) => s.id === c.saleId)
+          return {
+            saleId: c.saleId,
+            customer: data.customers.find((cu) => cu.id === sale?.customerId)?.name || '-',
+            financier: c.financier || '-',
+            status: c.status,
+            submittedAt: formatDate(c.submittedAt),
+          }
+        })
+        break
       case 'workshop':
         cols = [
           { key: 'saleId', label: 'Sale ID' },
@@ -130,24 +149,6 @@ export default function Reports() {
           accessories: w.accessoriesInstalled ? 'Yes' : 'No',
           status: w.status,
           completedBy: w.completedBy || '-',
-        }))
-        break
-      case 'dispatch':
-        cols = [
-          { key: 'saleId', label: 'Sale ID' },
-          { key: 'deliveryDate', label: 'Delivery Date' },
-          { key: 'receivedBy', label: 'Received By' },
-          { key: 'remarks', label: 'Remarks' },
-          { key: 'completed', label: 'Completed' },
-          { key: 'completedAt', label: 'Completed At' },
-        ]
-        r = data.dispatch.map((d) => ({
-          saleId: d.saleId,
-          deliveryDate: formatDate(d.deliveryDate),
-          receivedBy: d.receivedBy || '-',
-          remarks: d.remarks || '-',
-          completed: d.completed ? 'Yes' : 'No',
-          completedAt: d.completedAt ? formatDate(d.completedAt) : '-',
         }))
         break
       default:

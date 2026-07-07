@@ -1,11 +1,9 @@
 import { create, getAll, getById, updateById, removeById, textSearch } from './dataService'
-import { workshopService } from './workshopService'
-import { ntsaService } from './ntsaService'
 import { inventoryService } from './inventoryService'
-import { VAT_RATE } from '../constants'
+import { VAT_RATE, VEHICLE_ASSIGNABLE_STATUS } from '../constants'
 
 const PATH = 'sales'
-const SEARCH_FIELDS = ['customerId', 'vehicleId', 'salesAgent', 'status', 'paymentMethod', 'invoiceNumber', 'registrationNo']
+const SEARCH_FIELDS = ['customerId', 'vehicleId', 'salesAgent', 'status', 'paymentMethod', 'invoiceNumber', 'registrationNo', 'branch']
 
 export const saleService = {
   create: (data) => create(PATH, { ...data, createdAt: Date.now() }),
@@ -16,61 +14,89 @@ export const saleService = {
   search: (items, term) => textSearch(items, SEARCH_FIELDS, term),
 
   /**
-   * Convert an inquiry into a sale. Reserves the vehicle and updates inquiry status.
-   * Payment confirmation triggers workshop + NTSA creation (see confirmPayment).
+   * A customer walks in to inquire. Create a lead sale with no vehicle and no
+   * payment method yet — status "Inquiry".
    */
-  convertFromInquiry: async ({ inquiry, vehicleId, paymentMethod, price, salesAgent, branch }) => {
-    const saleData = {
-      customerId: inquiry.customerId,
-      vehicleId,
-      inquiryId: inquiry.id,
-      paymentMethod,
-      price,
-      salesAgent,
+  createLead: ({ customerId, salesAgent, salesAgentId, branch }) =>
+    create(PATH, {
+      customerId,
+      vehicleId: '',
+      paymentMethod: '',
+      price: 0,
+      salesAgent: salesAgent || '',
+      salesAgentId: salesAgentId || '',
       branch: branch || '',
-      status: 'Payment Pending',
-    }
-    const saleId = await create(PATH, { ...saleData, createdAt: Date.now() })
-    await inventoryService.reserve(vehicleId)
-    return saleId
+      status: 'Inquiry',
+      createdAt: Date.now(),
+    }),
+
+  /**
+   * Customer agrees to proceed. Capture payment method + price + branch.
+   * Cash → "Payment Pending". Credit → "Loan Requested".
+   */
+  agreeToProceed: async (saleId, { paymentMethod, price, branch }) => {
+    const status = paymentMethod === 'Cash' ? 'Payment Pending' : 'Loan Requested'
+    await updateById(PATH, saleId, {
+      paymentMethod,
+      price: Number(price) || 0,
+      branch: branch || '',
+      status,
+    })
+    return status
   },
 
   /**
-   * After payment is confirmed: reserve vehicle, create workshop job + NTSA process,
-   * and advance the sale to 'Workshop'.
+   * Cash path: a recorded payment has been confirmed. Move the sale to
+   * "Payment Confirmed" so a unit can be assigned next.
    */
-  confirmPayment: async (sale, vehicleId) => {
-    await inventoryService.update(vehicleId, { status: 'Reserved' })
-    await workshopService.create({
-      saleId: sale.id,
-      batteryInspection: false,
-      motorInspection: false,
-      accessoriesInstalled: false,
-      remarks: '',
-      status: 'Pending',
-      completedBy: '',
-    })
-    await ntsaService.create({
-      saleId: sale.id,
-      applicationSubmitted: false,
-      inspectionCompleted: false,
-      ownershipTransferred: false,
-      logbookIssued: false,
-      status: 'Pending',
-    })
-    await updateById(PATH, sale.id, { status: 'Payment Confirmed' })
-    // advance to workshop stage
-    await updateById(PATH, sale.id, { status: 'Workshop' })
+  confirmCashPayment: async (saleId) => {
+    await updateById(PATH, saleId, { status: 'Payment Confirmed', paymentConfirmedAt: Date.now() })
   },
 
-  completeHandover: async (saleId, vehicleId) => {
-    await updateById(PATH, saleId, { status: 'Completed', completedAt: Date.now() })
-    await inventoryService.update(vehicleId, { status: 'Delivered' })
+  /**
+   * Credit path: advance the loan stage. Accepted → ready for unit assignment.
+   * Rejected is terminal.
+   */
+  setLoanStage: async (saleId, stage) => {
+    await updateById(PATH, saleId, { status: stage, loanStageUpdatedAt: Date.now() })
+  },
+
+  /**
+   * Assign a (NTSA-cleared) unit to the customer. Reserves the vehicle and
+   * moves the sale to "Unit Assigned".
+   */
+  assignUnit: async (saleId, vehicleId) => {
+    const vehicle = await inventoryService.getById(vehicleId)
+    if (vehicle && !VEHICLE_ASSIGNABLE_STATUS.includes(vehicle.status)) {
+      throw new Error(`Vehicle must be NTSA Cleared before assignment (currently ${vehicle.status})`)
+    }
+    await updateById(PATH, saleId, { vehicleId, status: 'Unit Assigned', unitAssignedAt: Date.now() })
+    if (vehicle) await inventoryService.update(vehicleId, { status: 'Reserved' })
+  },
+
+  /**
+   * Ownership transferred to the customer at NTSA.
+   */
+  transferNtsa: async (saleId) => {
+    await updateById(PATH, saleId, { status: 'NTSA Transfer', ntsaTransferredAt: Date.now() })
+  },
+
+  /**
+   * Tuk-tuk dispatched / delivered to the customer. Vehicle → Delivered,
+   * sale → Dispatched.
+   */
+  dispatch: async (saleId, vehicleId, details = {}) => {
+    await updateById(PATH, saleId, {
+      status: 'Dispatched',
+      dispatchedAt: Date.now(),
+      ...details,
+    })
+    if (vehicleId) await inventoryService.update(vehicleId, { status: 'Delivered' })
   },
 
   /**
    * Save the sale's invoice details (registration no, VAT, etc.) and stamp
-   * an invoice number if one is not already present. Returns the updated sale.
+   * an invoice number if one is not already present.
    */
   saveInvoice: async (saleId, { registrationNo, vatRate = VAT_RATE, invoiceNumber }) => {
     const sale = await getById(PATH, saleId)

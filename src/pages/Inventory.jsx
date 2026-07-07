@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { FiPlus, FiEdit2, FiTrash2, FiEye, FiUpload, FiX } from 'react-icons/fi'
+import { FiPlus, FiEdit2, FiTrash2, FiEye, FiUpload, FiX, FiArrowRight } from 'react-icons/fi'
 import toast from 'react-hot-toast'
 import AppLayout from '../components/layouts/AppLayout'
 import PageHeader from '../components/ui/PageHeader'
@@ -13,7 +13,7 @@ import { ButtonLoader } from '../components/ui/Spinner'
 import { useAsyncList } from '../hooks/useAsync'
 import { useAuth } from '../contexts/AuthContext'
 import { inventoryService, MAX_VEHICLE_IMAGES, MIN_VEHICLE_IMAGES } from '../services'
-import { VEHICLE_MODELS, VEHICLE_COLORS, VEHICLE_STATUS } from '../constants'
+import { VEHICLE_MODELS, VEHICLE_COLORS, VEHICLE_STATUS, VEHICLE_PROCUREMENT_STAGES } from '../constants'
 import { formatCurrency, formatDate } from '../utils/helpers'
 import { can } from '../utils/permissions'
 
@@ -40,7 +40,7 @@ export default function Inventory() {
 
   const openCreate = () => {
     setEditing(null)
-    reset({ model: '', price: '', color: '', batterySerial: '', motorSerial: '', chassisNumber: '', registrationNo: '', status: 'Available', dateReceivedFromFactory: '', ntsaBookingDate: '' })
+    reset({ model: '', price: '', color: '', batterySerial: '', motorSerial: '', chassisNumber: '', registrationNo: '', status: 'Ordered', dateReceivedFromFactory: '', ntsaBookingDate: '' })
     setPendingFiles([])
     setPendingPreviews([])
     setModalOpen(true)
@@ -147,6 +147,13 @@ export default function Inventory() {
     }
   }
 
+  const advanceStage = async (v) => {
+    const idx = VEHICLE_PROCUREMENT_STAGES.indexOf(v.status)
+    if (idx < 0 || idx >= VEHICLE_PROCUREMENT_STAGES.length - 1) return
+    const next = VEHICLE_PROCUREMENT_STAGES[idx + 1]
+    await changeStatus(v, next)
+  }
+
   const filtered = filter === 'All' ? items : items.filter((v) => v.status === filter)
   const existingImages = editing ? vehicleImages(editing) : []
   const allPreviews = [...existingImages, ...pendingPreviews]
@@ -242,13 +249,25 @@ export default function Inventory() {
                 <td className="font-mono text-xs text-slate-500">{v.chassisNumber || '-'}</td>
                 <td>
                   {canManage ? (
-                    <select
-                      value={v.status}
-                      onChange={(e) => changeStatus(v, e.target.value)}
-                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
-                    >
-                      {VEHICLE_STATUS.map((s) => <option key={s}>{s}</option>)}
-                    </select>
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={v.status}
+                        onChange={(e) => changeStatus(v, e.target.value)}
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                      >
+                        {VEHICLE_STATUS.map((s) => <option key={s}>{s}</option>)}
+                      </select>
+                      {VEHICLE_PROCUREMENT_STAGES.indexOf(v.status) >= 0 &&
+                        VEHICLE_PROCUREMENT_STAGES.indexOf(v.status) < VEHICLE_PROCUREMENT_STAGES.length - 1 && (
+                          <button
+                            className="btn-ghost p-1.5 text-primary"
+                            title={`Advance to ${VEHICLE_PROCUREMENT_STAGES[VEHICLE_PROCUREMENT_STAGES.indexOf(v.status) + 1]}`}
+                            onClick={() => advanceStage(v)}
+                          >
+                            <FiArrowRight size={15} />
+                          </button>
+                        )}
+                    </div>
                   ) : (
                     <Badge variant={statusVariant(v.status)}>{v.status}</Badge>
                   )}

@@ -10,8 +10,9 @@ import {
   FiPrinter,
   FiTrash2,
   FiUser,
-  FiLink as FiLinkIcon,
   FiMapPin,
+  FiTruck,
+  FiArrowRight,
 } from 'react-icons/fi'
 import toast from 'react-hot-toast'
 import dayjs from 'dayjs'
@@ -19,6 +20,7 @@ import AppLayout from '../components/layouts/AppLayout'
 import PageHeader from '../components/ui/PageHeader'
 import Card from '../components/ui/Card'
 import Badge, { statusVariant } from '../components/ui/Badge'
+import StatusSteps from '../components/ui/StatusSteps'
 import Modal from '../components/ui/Modal'
 import { ButtonLoader, SectionLoader } from '../components/ui/Spinner'
 import { useAsync } from '../hooks/useAsync'
@@ -27,15 +29,20 @@ import {
   saleService,
   customerService,
   inventoryService,
-  inquiryService,
   paymentService,
   creditService,
-  workshopService,
-  ntsaService,
   settingsService,
   uploadMany,
 } from '../services'
-import { CREDIT_STATUS, CREDIT_DOCUMENT_TYPES, VAT_RATE } from '../constants'
+import {
+  PAYMENT_METHODS,
+  CREDIT_STATUS,
+  CREDIT_DOCUMENT_TYPES,
+  VAT_RATE,
+  SALE_FLOW_CASH,
+  SALE_FLOW_CREDIT,
+  VEHICLE_ASSIGNABLE_STATUS,
+} from '../constants'
 import {
   formatCurrency,
   formatDate,
@@ -51,34 +58,30 @@ export default function SaleDetails() {
   const { id } = useParams()
   const { profile } = useAuth()
   const { data, loading, reload } = useAsync(async () => {
-    const [sale, customers, vehicles, inquiries, settings] = await Promise.all([
+    const [sale, customers, vehicles, payments, credit, settings] = await Promise.all([
       saleService.getById(id),
       customerService.getAll(),
       inventoryService.getAll(),
-      inquiryService.getAll(),
-      settingsService.getAll(),
-    ])
-    const [payments, credit, workshop, ntsa] = await Promise.all([
       paymentService.getBySale(id),
       creditService.getBySale(id),
-      workshopService.getBySale(id),
-      ntsaService.getBySale(id),
+      settingsService.getAll(),
     ])
     return {
       sale,
       customer: customers.find((c) => c.id === sale?.customerId),
       vehicle: vehicles.find((v) => v.id === sale?.vehicleId),
-      inquiry: inquiries.find((i) => i.id === sale?.inquiryId),
+      assignableVehicles: vehicles.filter((v) => VEHICLE_ASSIGNABLE_STATUS.includes(v.status)),
       payments,
       credit,
-      workshop,
-      ntsa,
       settings,
     }
   }, [id])
 
+  const [agreeOpen, setAgreeOpen] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
   const [creditOpen, setCreditOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [dispatchOpen, setDispatchOpen] = useState(false)
   const [invoiceOpen, setInvoiceOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const {
@@ -96,7 +99,7 @@ export default function SaleDetails() {
     )
   }
 
-  const { sale, customer, vehicle, inquiry, payments, credit, workshop, ntsa, settings } = data
+  const { sale, customer, vehicle, assignableVehicles, payments, credit, settings } = data
   if (!sale) {
     return (
       <AppLayout>
@@ -106,15 +109,49 @@ export default function SaleDetails() {
     )
   }
 
-  const isCash = sale.paymentMethod === 'Cash'
-  const paymentConfirmed = payments.some((p) => p.confirmed)
   const canManage = can.manageSales(profile?.role)
-  const creditDisbursed = credit?.status === 'Disbursed'
   const financiers = settings?.financiers || []
   const branches = settings?.branches || []
+  const isCash = sale.paymentMethod === 'Cash'
+  const isCredit = sale.paymentMethod === 'Credit'
+  const paymentConfirmed = payments.some((p) => p.confirmed)
   const creditDocs = credit?.documents || {}
 
-  // ----- Cash workflow -----
+  // ----- Agree to proceed -----
+  const openAgree = () => {
+    reset({
+      paymentMethod: sale.paymentMethod || 'Cash',
+      price: sale.price || vehicle?.price || 0,
+      branch: sale.branch || branches[0] || '',
+    })
+    setAgreeOpen(true)
+  }
+
+  const doAgree = async (formData) => {
+    try {
+      await saleService.agreeToProceed(id, {
+        paymentMethod: formData.paymentMethod,
+        price: formData.price,
+        branch: formData.branch,
+      })
+      // If credit, create the credit application record so documents can be uploaded.
+      if (formData.paymentMethod === 'Credit' && !credit) {
+        await creditService.create({
+          saleId: id,
+          customerId: sale.customerId,
+          financier: '',
+          status: 'Loan Requested',
+        })
+      }
+      toast.success('Payment method captured')
+      setAgreeOpen(false)
+      reload()
+    } catch (e) {
+      toast.error(e.message)
+    }
+  }
+
+  // ----- Cash payment -----
   const openPayment = () => {
     reset({
       amount: sale.price,
@@ -149,8 +186,8 @@ export default function SaleDetails() {
   const confirmPayment = async (payment) => {
     try {
       await paymentService.confirm(payment.id)
-      await saleService.confirmPayment(sale, sale.vehicleId)
-      toast.success('Payment confirmed. Workshop & NTSA processes initiated.')
+      await saleService.confirmCashPayment(id)
+      toast.success('Payment confirmed. Ready to assign a unit.')
       reload()
     } catch (e) {
       toast.error(e.message)
@@ -174,7 +211,6 @@ export default function SaleDetails() {
       <div class="row"><span>Date:</span><b>${formatDate(payment.paymentDate)}</b></div>
       <div class="row"><span>Customer:</span><b>${customer?.name || '-'}</b></div>
       <div class="row"><span>Vehicle:</span><b>${vehicle?.model || '-'}</b></div>
-      <div class="row"><span>Chassis:</span><b>${vehicle?.chassisNumber || '-'}</b></div>
       <hr>
       <div class="row"><span>Amount Paid:</span><b>${formatCurrency(payment.amount)}</b></div>
       <div class="row"><span>Method:</span><b>${payment.paymentMethod}</b></div>
@@ -186,30 +222,31 @@ export default function SaleDetails() {
     w.print()
   }
 
-  // ----- Credit workflow -----
+  // ----- Credit / loan flow -----
   const openCredit = () => {
     reset({
       financier: credit?.financier || '',
-      status: credit?.status || 'Pending',
+      status: credit?.status || 'Loan Requested',
     })
     setCreditOpen(true)
   }
 
-  const submitCredit = async (formData) => {
+  const saveCredit = async (formData) => {
     try {
       const payload = {
         saleId: id,
         customerId: sale.customerId,
-        inquiryId: sale.inquiryId || '',
         financier: formData.financier,
-        status: credit?.status || 'Pending',
+        status: formData.status,
       }
       if (credit) {
         await creditService.update(credit.id, payload)
       } else {
         await creditService.create(payload)
       }
-      toast.success('Credit application saved')
+      // Keep the sale status in sync with the loan stage.
+      await saleService.setLoanStage(id, formData.status)
+      toast.success('Loan application updated')
       setCreditOpen(false)
       reload()
     } catch (e) {
@@ -217,25 +254,7 @@ export default function SaleDetails() {
     }
   }
 
-  const updateCreditStatus = async (status) => {
-    try {
-      await creditService.update(credit.id, { status })
-      if (status === 'Disbursed') {
-        await saleService.confirmPayment(sale, sale.vehicleId)
-        toast.success('Disbursement recorded. Workshop & NTSA initiated.')
-      } else if (status === 'Rejected') {
-        await saleService.update(id, { status: 'Payment Pending' })
-        toast.success(`Credit ${status.toLowerCase()}`)
-      } else {
-        toast.success(`Credit ${status.toLowerCase()}`)
-      }
-      reload()
-    } catch (e) {
-      toast.error(e.message)
-    }
-  }
-
-  // ----- Categorized document upload (Firebase Storage) -----
+  // ----- Categorized document upload -----
   const uploadDocs = async (category, e) => {
     const files = Array.from(e.target.files || [])
     if (!files.length || !credit) return
@@ -263,12 +282,63 @@ export default function SaleDetails() {
     }
   }
 
+  // ----- Assign unit -----
+  const openAssign = () => {
+    reset({ vehicleId: sale.vehicleId || '' })
+    setAssignOpen(true)
+  }
+
+  const doAssign = async (formData) => {
+    try {
+      await saleService.assignUnit(id, formData.vehicleId)
+      toast.success('Unit assigned to customer')
+      setAssignOpen(false)
+      reload()
+    } catch (e) {
+      toast.error(e.message)
+    }
+  }
+
+  // ----- NTSA transfer -----
+  const transferNtsa = async () => {
+    try {
+      await saleService.transferNtsa(id)
+      toast.success('NTSA ownership transfer recorded')
+      reload()
+    } catch (e) {
+      toast.error(e.message)
+    }
+  }
+
+  // ----- Dispatch -----
+  const openDispatch = () => {
+    reset({
+      deliveryDate: dayjs().format('YYYY-MM-DD'),
+      receivedBy: customer?.name || '',
+      remarks: '',
+    })
+    setDispatchOpen(true)
+  }
+
+  const doDispatch = async (formData) => {
+    try {
+      await saleService.dispatch(id, sale.vehicleId, {
+        deliveryDate: formData.deliveryDate,
+        receivedBy: formData.receivedBy,
+        dispatchRemarks: formData.remarks,
+      })
+      toast.success('Tuk-tuk dispatched!')
+      setDispatchOpen(false)
+      reload()
+    } catch (e) {
+      toast.error(e.message)
+    }
+  }
+
   // ----- Invoice -----
   const openInvoice = () => {
-    const vat = computeVat(sale.price, VAT_RATE)
     reset({
       registrationNo: sale.registrationNo || vehicle?.registrationNo || '',
-      branch: sale.branch || '',
       vatRate: VAT_RATE,
       invoiceNumber: sale.invoiceNumber || invoiceNumber(),
       invoiceDate: sale.invoicedAt ? dayjs(sale.invoicedAt).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
@@ -283,11 +353,8 @@ export default function SaleDetails() {
         invoiceNumber: formData.invoiceNumber,
         vatRate: Number(formData.vatRate),
       })
-      // Also stamp the registration no + branch on the vehicle for record-keeping
       if (vehicle) {
-        await inventoryService.update(vehicle.id, {
-          registrationNo: formData.registrationNo,
-        })
+        await inventoryService.update(vehicle.id, { registrationNo: formData.registrationNo })
       }
       toast.success('Invoice generated')
       setInvoiceOpen(false)
@@ -317,40 +384,18 @@ export default function SaleDetails() {
         .grand{font-weight:bold;font-size:16px;border-top:2px solid #0B6E4F;padding-top:8px;margin-top:8px}
       </style></head><body>
       <div class="head">
-        <div>
-          <h1>Tuk-Tuk e-Mobility</h1>
-          <p class="muted">${sale.branch || '-'} Branch</p>
-        </div>
-        <div style="text-align:right">
-          <p style="font-size:18px;font-weight:bold">INVOICE</p>
-          <p class="muted">${sale.invoiceNumber || '-'}</p>
-          <p class="muted">Date: ${sale.invoicedAt ? formatDate(sale.invoicedAt) : formatDate(Date.now())}</p>
-        </div>
+        <div><h1>Tuk-Tuk e-Mobility</h1><p class="muted">${sale.branch || '-'} Branch</p></div>
+        <div style="text-align:right"><p style="font-size:18px;font-weight:bold">INVOICE</p><p class="muted">${sale.invoiceNumber || '-'}</p><p class="muted">Date: ${sale.invoicedAt ? formatDate(sale.invoicedAt) : formatDate(Date.now())}</p></div>
       </div>
-      <div style="margin-bottom:16px">
-        <p class="muted">Bill To</p>
-        <p style="font-weight:bold">${customer?.name || '-'}</p>
-        <p class="muted">${customer?.phone || ''} ${customer?.email ? '· ' + customer.email : ''}</p>
-        <p class="muted">${customer?.address || ''}</p>
-      </div>
-      <table>
-        <thead><tr><th>Description</th><th>Reg. No.</th><th>Chassis No.</th><th style="text-align:right">Amount</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>${vehicle?.model || '-'} (${vehicle?.color || ''})</td>
-            <td>${sale.registrationNo || vehicle?.registrationNo || '-'}</td>
-            <td>${vehicle?.chassisNumber || '-'}</td>
-            <td style="text-align:right">${formatCurrency(price)}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div style="margin-bottom:16px"><p class="muted">Bill To</p><p style="font-weight:bold">${customer?.name || '-'}</p><p class="muted">${customer?.phone || ''}</p></div>
+      <table><thead><tr><th>Description</th><th>Reg. No.</th><th>Chassis No.</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody><tr><td>${vehicle?.model || '-'} (${vehicle?.color || ''})</td><td>${sale.registrationNo || vehicle?.registrationNo || '-'}</td><td>${vehicle?.chassisNumber || '-'}</td><td style="text-align:right">${formatCurrency(price)}</td></tr></tbody></table>
       <div style="max-width:300px;margin-left:auto;margin-top:16px">
         <div class="tot"><span>Subtotal</span><span>${formatCurrency(price)}</span></div>
         <div class="tot"><span>VAT (${(rate * 100).toFixed(0)}%)</span><span>${formatCurrency(vat)}</span></div>
         <div class="tot grand"><span>Total</span><span>${formatCurrency(total)}</span></div>
       </div>
       <p class="muted" style="margin-top:30px">Payment method: ${sale.paymentMethod}</p>
-      <p class="muted">Thank you for your business!</p>
       </body></html>`)
     w.document.close()
     w.print()
@@ -371,15 +416,8 @@ export default function SaleDetails() {
         .sign div{border-top:1px solid #475569;padding-top:4px;width:40%}
       </style></head><body>
       <div class="head">
-        <div>
-          <h1>Tuk-Tuk e-Mobility</h1>
-          <p class="muted">${sale.branch || '-'} Branch</p>
-        </div>
-        <div style="text-align:right">
-          <p style="font-size:18px;font-weight:bold">DELIVERY NOTE</p>
-          <p class="muted">${sale.deliveryNoteNumber || deliveryNoteNumber()}</p>
-          <p class="muted">Date: ${formatDate(Date.now())}</p>
-        </div>
+        <div><h1>Tuk-Tuk e-Mobility</h1><p class="muted">${sale.branch || '-'} Branch</p></div>
+        <div style="text-align:right"><p style="font-size:18px;font-weight:bold">DELIVERY NOTE</p><p class="muted">${sale.deliveryNoteNumber || deliveryNoteNumber()}</p><p class="muted">Date: ${formatDate(Date.now())}</p></div>
       </div>
       <div class="box">
         <div class="row"><span>Delivered To:</span><b>${customer?.name || '-'}</b></div>
@@ -391,27 +429,28 @@ export default function SaleDetails() {
         <div class="row"><span>Registration No.:</span><span>${sale.registrationNo || vehicle?.registrationNo || '-'}</span></div>
         <div class="row"><span>Chassis No.:</span><span>${vehicle?.chassisNumber || '-'}</span></div>
         <div class="row"><span>Color:</span><span>${vehicle?.color || '-'}</span></div>
-        <div class="row"><span>Battery Serial:</span><span>${vehicle?.batterySerial || '-'}</span></div>
-        <div class="row"><span>Motor Serial:</span><span>${vehicle?.motorSerial || '-'}</span></div>
       </div>
-      <p class="muted">This is to acknowledge that the above vehicle has been delivered to the customer in good condition, with all accessories and documentation complete.</p>
-      <div class="sign">
-        <div>Received By (Customer)</div>
-        <div>Authorised By (Tuk-Tuk e-Mobility)</div>
-      </div>
+      <div class="sign"><div>Received By (Customer)</div><div>Authorised By (Tuk-Tuk e-Mobility)</div></div>
       </body></html>`)
     w.document.close()
     w.print()
   }
 
   // ----- Stage indicators -----
-  const stages = [
-    { label: 'Payment', done: paymentConfirmed || creditDisbursed },
-    { label: 'Workshop', done: workshop?.status === 'Completed' },
-    { label: 'NTSA', done: ntsa?.status === 'Completed' },
-    { label: 'Dispatch', done: sale.status === 'Completed' },
+  const flow = isCredit ? SALE_FLOW_CREDIT : SALE_FLOW_CASH
+  const currentIdx = Math.max(flow.indexOf(sale.status), 0)
+  const stageSteps = [
+    { label: 'Inquiry', status: currentIdx >= 1 ? 'done' : 'active' },
+    {
+      label: 'Payment',
+      status: isCredit
+        ? currentIdx >= flow.indexOf('Loan Accepted') ? 'done' : 'active'
+        : currentIdx >= flow.indexOf('Payment Confirmed') ? 'done' : 'active',
+    },
+    { label: 'Unit Assigned', status: currentIdx >= flow.indexOf('Unit Assigned') ? 'done' : currentIdx >= flow.indexOf('Payment Confirmed') || currentIdx >= flow.indexOf('Loan Accepted') ? 'active' : 'pending' },
+    { label: 'NTSA Transfer', status: sale.status === 'NTSA Transfer' ? 'active' : sale.status === 'Dispatched' ? 'done' : currentIdx > flow.indexOf('Unit Assigned') ? 'done' : 'pending' },
+    { label: 'Dispatch', status: sale.status === 'Dispatched' ? 'done' : sale.status === 'NTSA Transfer' ? 'active' : 'pending' },
   ]
-
   return (
     <AppLayout>
       <Link to="/sales" className="mb-4 inline-flex items-center gap-2 text-sm text-slate-500 hover:text-primary">
@@ -442,19 +481,7 @@ export default function SaleDetails() {
 
       {/* Stage progress */}
       <Card className="mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          {stages.map((s, i) => (
-            <div key={s.label} className="flex flex-1 items-center gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${s.done ? 'bg-primary text-white' : 'bg-slate-100 text-slate-400'}`}>
-                {s.done ? <FiCheckCircle /> : i + 1}
-              </div>
-              <div>
-                <p className={`text-sm font-medium ${s.done ? 'text-primary' : 'text-slate-500'}`}>{s.label}</p>
-                <p className="text-xs text-slate-400">{s.done ? 'Complete' : 'Pending'}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <StatusSteps steps={stageSteps} />
       </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -472,7 +499,7 @@ export default function SaleDetails() {
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Vehicle</span>
-              <span className="font-medium text-slate-700">{vehicle?.model}</span>
+              <span className="font-medium text-slate-700">{vehicle ? `${vehicle.model} (${vehicle.color})` : 'Not assigned'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Price</span>
@@ -490,7 +517,7 @@ export default function SaleDetails() {
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Method</span>
-              <Badge variant={isCash ? 'green' : 'blue'}>{sale.paymentMethod}</Badge>
+              <Badge variant={isCash ? 'green' : 'blue'}>{sale.paymentMethod || '—'}</Badge>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Branch</span>
@@ -512,57 +539,48 @@ export default function SaleDetails() {
                 <span className="font-mono text-xs text-slate-700">{sale.invoiceNumber}</span>
               </div>
             )}
-            {inquiry && (
-              <div className="flex justify-between">
-                <span className="text-slate-400">Inquiry</span>
-                <Link to={`/inquiries/${inquiry.id}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                  <FiLinkIcon size={12} /> #{inquiry.id?.slice(-6)}
-                </Link>
-              </div>
-            )}
           </div>
         </Card>
 
-        {/* Payment / Credit section */}
+        {/* Action panel */}
         <Card className="lg:col-span-2">
-          <h3 className="mb-4 font-semibold text-slate-700">
-            {isCash ? 'Payment' : 'Credit Application'}
-          </h3>
+          <h3 className="mb-4 font-semibold text-slate-700">Workflow</h3>
 
-          {isCash ? (
+          {/* 1. Inquiry → Agree to proceed */}
+          {sale.status === 'Inquiry' && (
+            <div className="rounded-xl bg-slate-50 p-6 text-center">
+              <FiUser size={32} className="mx-auto text-slate-300" />
+              <p className="mt-2 text-sm text-slate-500">Customer inquired. Capture payment method to proceed.</p>
+              {canManage && (
+                <button className="btn-primary mt-4" onClick={openAgree}>
+                  <FiArrowRight /> Agree to Proceed
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* 2. Cash: payment pending → record & confirm */}
+          {isCash && sale.status === 'Payment Pending' && (
             <div>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-medium text-slate-600">Cash Payment</p>
+                {canManage && <button className="btn-primary" onClick={openPayment}><FiDollarSign /> Record Payment</button>}
+              </div>
               {payments.length === 0 ? (
-                <div className="rounded-xl bg-slate-50 p-6 text-center">
-                  <FiDollarSign size={32} className="mx-auto text-slate-300" />
-                  <p className="mt-2 text-sm text-slate-500">No payment recorded yet</p>
-                  {canManage && !paymentConfirmed && (
-                    <button className="btn-primary mt-4" onClick={openPayment}>
-                      <FiDollarSign /> Record Payment
-                    </button>
-                  )}
-                </div>
+                <p className="py-4 text-center text-sm text-slate-400">No payment recorded yet</p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {payments.map((p) => (
-                    <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 p-4">
+                    <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 p-3">
                       <div>
                         <p className="font-medium text-slate-700">{formatCurrency(p.amount)}</p>
-                        <p className="text-xs text-slate-400">
-                          {p.paymentMethod} · {p.reference || 'No ref'} · {formatDate(p.paymentDate)}
-                        </p>
-                        <p className="text-xs text-slate-400">Receipt: {p.receiptNumber}</p>
+                        <p className="text-xs text-slate-400">{p.paymentMethod} · {p.reference || 'No ref'} · {formatDate(p.paymentDate)}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant={p.confirmed ? 'green' : 'amber'}>
-                          {p.confirmed ? 'Confirmed' : 'Pending'}
-                        </Badge>
-                        <button className="btn-ghost p-2" title="Print Receipt" onClick={() => printReceipt(p)}>
-                          <FiPrinter size={16} />
-                        </button>
+                        <Badge variant={p.confirmed ? 'green' : 'amber'}>{p.confirmed ? 'Confirmed' : 'Pending'}</Badge>
+                        <button className="btn-ghost p-2" onClick={() => printReceipt(p)}><FiPrinter size={16} /></button>
                         {canManage && !p.confirmed && (
-                          <button className="btn-primary px-3 py-1.5" onClick={() => confirmPayment(p)}>
-                            <FiCheckCircle size={14} /> Confirm
-                          </button>
+                          <button className="btn-primary px-3 py-1.5" onClick={() => confirmPayment(p)}><FiCheckCircle size={14} /> Confirm</button>
                         )}
                       </div>
                     </div>
@@ -570,232 +588,188 @@ export default function SaleDetails() {
                 </div>
               )}
             </div>
-          ) : (
-            <div>
-              {!credit ? (
-                <div className="rounded-xl bg-slate-50 p-6 text-center">
-                  <FiFileText size={32} className="mx-auto text-slate-300" />
-                  <p className="mt-2 text-sm text-slate-500">No credit application submitted</p>
-                  {canManage && (
-                    <button className="btn-primary mt-4" onClick={openCredit}>
-                      <FiFileText /> Submit Application
-                    </button>
-                  )}
+          )}
+
+          {/* 3. Payment confirmed → assign unit */}
+          {isCash && sale.status === 'Payment Confirmed' && (
+            <div className="rounded-xl bg-green-50 p-6 text-center">
+              <FiCheckCircle size={32} className="mx-auto text-green-500" />
+              <p className="mt-2 text-sm text-green-700">Payment confirmed. Assign a unit to the customer.</p>
+              {canManage && <button className="btn-primary mt-4" onClick={openAssign}><FiTruck /> Assign Unit</button>}
+            </div>
+          )}
+
+          {/* Credit flow */}
+          {isCredit && ['Loan Requested', 'Loan Submitted', 'Loan Accepted', 'Loan Rejected'].includes(sale.status) && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 p-4">
+                <div>
+                  <p className="font-medium text-slate-700">{credit?.financier || 'No financier'}</p>
+                  <p className="text-xs text-slate-400">Submitted {credit ? formatDate(credit.submittedAt) : '-'}</p>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* Linked records */}
-                  <div className="grid grid-cols-1 gap-2 rounded-xl bg-slate-50 p-3 text-xs sm:grid-cols-2">
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <FiUser size={13} />
-                      Customer:{' '}
-                      {customer && (
-                        <Link to={`/customers/${customer.id}`} className="text-primary hover:underline">
-                          {customer.name}
-                        </Link>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <FiLinkIcon size={13} />
-                      Inquiry:{' '}
-                      {inquiry ? (
-                        <Link to={`/inquiries/${inquiry.id}`} className="text-primary hover:underline">
-                          #{inquiry.id?.slice(-6)}
-                        </Link>
-                      ) : '-'}
-                    </div>
-                  </div>
+                <Badge variant={statusVariant(sale.status)}>{sale.status}</Badge>
+                {canManage && <button className="btn-outline" onClick={openCredit}><FiFileText /> Update Loan</button>}
+              </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 p-4">
-                    <div>
-                      <p className="font-medium text-slate-700">{credit.financier || 'No financier'}</p>
-                      <p className="text-xs text-slate-400">Submitted {formatDate(credit.submittedAt)}</p>
-                    </div>
-                    <Badge variant={statusVariant(credit.status)}>{credit.status}</Badge>
-                  </div>
-
-                  {/* Categorized documents */}
-                  <div>
-                    <p className="mb-3 text-sm font-medium text-slate-600">Supporting Documents</p>
-                    <div className="space-y-3">
-                      {CREDIT_DOCUMENT_TYPES.map((doc) => {
-                        const files = creditDocs[doc.key] || []
-                        return (
-                          <div key={doc.key} className="rounded-xl border border-slate-100 p-3">
-                            <div className="mb-2 flex items-center justify-between">
-                              <p className="text-sm font-medium text-slate-700">
-                                {doc.label}
-                                <span className="ml-2 text-xs text-slate-400">({files.length})</span>
-                              </p>
-                              {canManage && (
-                                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
-                                  {uploading ? 'Uploading…' : (<><FiUpload size={13} /> Upload</>)}
-                                  <input
-                                    type="file"
-                                    multiple
-                                    accept="image/*,application/pdf"
-                                    className="hidden"
-                                    onChange={(e) => uploadDocs(doc.key, e)}
-                                    disabled={uploading}
-                                  />
-                                </label>
-                              )}
-                            </div>
-                            {files.length > 0 ? (
-                              <div className="space-y-1">
-                                {files.map((d, i) => (
-                                  <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5">
-                                    <a href={d.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">
-                                      📄 {d.name}
-                                    </a>
-                                    {canManage && (
-                                      <button
-                                        className="btn-ghost p-1 text-red-500"
-                                        onClick={() => removeDoc(doc.key, i)}
-                                        title="Remove"
-                                      >
-                                        <FiTrash2 size={14} />
-                                      </button>
-                                    )}
-                                  </div>
-                                ))}
+              {/* Documents */}
+              <div>
+                <p className="mb-3 text-sm font-medium text-slate-600">Supporting Documents</p>
+                <div className="space-y-3">
+                  {CREDIT_DOCUMENT_TYPES.map((doc) => {
+                    const files = creditDocs[doc.key] || []
+                    return (
+                      <div key={doc.key} className="rounded-xl border border-slate-100 p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium text-slate-700">{doc.label} <span className="text-xs text-slate-400">({files.length})</span></p>
+                          {canManage && (
+                            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
+                              {uploading ? 'Uploading…' : (<><FiUpload size={13} /> Upload</>)}
+                              <input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={(e) => uploadDocs(doc.key, e)} disabled={uploading} />
+                            </label>
+                          )}
+                        </div>
+                        {files.length > 0 ? (
+                          <div className="space-y-1">
+                            {files.map((d, i) => (
+                              <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5">
+                                <a href={d.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">📄 {d.name}</a>
+                                {canManage && <button className="btn-ghost p-1 text-red-500" onClick={() => removeDoc(doc.key, i)}><FiTrash2 size={14} /></button>}
                               </div>
-                            ) : (
-                              <p className="text-xs text-slate-400">No file uploaded</p>
-                            )}
+                            ))}
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Status actions */}
-                  {canManage && credit.status !== 'Disbursed' && credit.status !== 'Rejected' && (
-                    <div className="flex flex-wrap gap-2">
-                      <button className="btn-outline" onClick={() => updateCreditStatus('Approved')}>Approve</button>
-                      <button className="btn-danger" onClick={() => updateCreditStatus('Rejected')}>Reject</button>
-                      {credit.status === 'Approved' && (
-                        <button className="btn-primary" onClick={() => updateCreditStatus('Disbursed')}>
-                          <FiDollarSign /> Record Disbursement
-                        </button>
-                      )}
-                    </div>
-                  )}
+                        ) : <p className="text-xs text-slate-400">No file uploaded</p>}
+                      </div>
+                    )
+                  })}
                 </div>
+              </div>
+
+              {/* Accepted → assign unit */}
+              {sale.status === 'Loan Accepted' && canManage && (
+                <div className="rounded-xl bg-green-50 p-4 text-center">
+                  <p className="text-sm text-green-700">Loan accepted. Assign a unit to the customer.</p>
+                  <button className="btn-primary mt-3" onClick={openAssign}><FiTruck /> Assign Unit</button>
+                </div>
+              )}
+              {sale.status === 'Loan Rejected' && (
+                <div className="rounded-xl bg-red-50 p-4 text-center text-sm text-red-600">Loan rejected. This sale cannot proceed.</div>
               )}
             </div>
           )}
-        </Card>
 
-        {/* Workshop & NTSA status */}
-        <Card className="lg:col-span-3">
-          <h3 className="mb-4 font-semibold text-slate-700">Workflow Status</h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-100 p-4">
-              <div className="flex items-center justify-between">
-                <p className="font-medium text-slate-700">Workshop</p>
-                <Badge variant={statusVariant(workshop?.status || 'Pending')}>{workshop?.status || 'Pending'}</Badge>
-              </div>
-              {workshop && (
-                <div className="mt-3 space-y-1 text-xs text-slate-500">
-                  <p>Battery: {workshop.batteryInspection ? '✓' : '○'}</p>
-                  <p>Motor: {workshop.motorInspection ? '✓' : '○'}</p>
-                  <p>Accessories: {workshop.accessoriesInstalled ? '✓' : '○'}</p>
-                </div>
-              )}
-              {workshop && <Link to="/workshop" className="mt-2 inline-block text-xs text-primary hover:underline">View job →</Link>}
+          {/* 4. Unit assigned → NTSA transfer */}
+          {sale.status === 'Unit Assigned' && canManage && (
+            <div className="rounded-xl bg-slate-50 p-6 text-center">
+              <p className="text-sm text-slate-500">Unit assigned. Transfer ownership at NTSA.</p>
+              <button className="btn-primary mt-4" onClick={transferNtsa}><FiFileText /> Record NTSA Transfer</button>
             </div>
-            <div className="rounded-xl border border-slate-100 p-4">
-              <div className="flex items-center justify-between">
-                <p className="font-medium text-slate-700">NTSA</p>
-                <Badge variant={statusVariant(ntsa?.status || 'Pending')}>{ntsa?.status || 'Pending'}</Badge>
-              </div>
-              {ntsa && (
-                <div className="mt-3 space-y-1 text-xs text-slate-500">
-                  <p>Application: {ntsa.applicationSubmitted ? '✓' : '○'}</p>
-                  <p>Inspection: {ntsa.inspectionCompleted ? '✓' : '○'}</p>
-                  <p>Ownership: {ntsa.ownershipTransferred ? '✓' : '○'}</p>
-                  <p>Logbook: {ntsa.logbookIssued ? '✓' : '○'}</p>
-                </div>
-              )}
-              {ntsa && <Link to="/ntsa" className="mt-2 inline-block text-xs text-primary hover:underline">View process →</Link>}
+          )}
+
+          {/* 5. NTSA transfer → dispatch */}
+          {sale.status === 'NTSA Transfer' && canManage && (
+            <div className="rounded-xl bg-slate-50 p-6 text-center">
+              <p className="text-sm text-slate-500">Ownership transferred. Dispatch the tuk-tuk to the customer.</p>
+              <button className="btn-primary mt-4" onClick={openDispatch}><FiTruck /> Dispatch</button>
             </div>
-          </div>
+          )}
+
+          {/* 6. Dispatched */}
+          {sale.status === 'Dispatched' && (
+            <div className="rounded-xl bg-green-50 p-6 text-center">
+              <FiCheckCircle size={32} className="mx-auto text-green-500" />
+              <p className="mt-2 text-sm text-green-700">Tuk-tuk dispatched. Sale complete!</p>
+              {sale.dispatchedAt && <p className="text-xs text-green-600">Dispatched {formatDate(sale.dispatchedAt)}</p>}
+            </div>
+          )}
         </Card>
       </div>
+
+      {/* Agree to Proceed Modal */}
+      <Modal
+        open={agreeOpen}
+        onClose={() => setAgreeOpen(false)}
+        title="Agree to Proceed"
+        footer={<><button className="btn-outline" onClick={() => setAgreeOpen(false)}>Cancel</button><button type="submit" form="agree-form" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Proceed</button></>}
+      >
+        <form id="agree-form" onSubmit={handleSubmit(doAgree)} className="space-y-4">
+          <div>
+            <label className="label">Payment Method</label>
+            <select className="input" {...register('paymentMethod', { required: 'Required' })}>
+              {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Price (KES)</label>
+            <input type="number" className="input" {...register('price', { required: 'Required', min: 1 })} />
+          </div>
+          <div>
+            <label className="label">Branch</label>
+            <select className="input" {...register('branch', { required: 'Required' })}>
+              <option value="">Select branch</option>
+              {branches.map((b) => <option key={b}>{b}</option>)}
+            </select>
+          </div>
+        </form>
+      </Modal>
 
       {/* Payment Modal */}
       <Modal
         open={payOpen}
         onClose={() => setPayOpen(false)}
         title="Record Payment"
-        footer={
-          <>
-            <button className="btn-outline" onClick={() => setPayOpen(false)}>Cancel</button>
-            <button type="submit" form="pay-form" className="btn-primary" disabled={isSubmitting}>
-              {isSubmitting && <ButtonLoader />} Record
-            </button>
-          </>
-        }
+        footer={<><button className="btn-outline" onClick={() => setPayOpen(false)}>Cancel</button><button type="submit" form="pay-form" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Record</button></>}
       >
         <form id="pay-form" onSubmit={handleSubmit(recordPayment)} className="space-y-4">
+          <div><label className="label">Amount (KES)</label><input type="number" className="input" {...register('amount', { required: 'Required', min: 1 })} /></div>
+          <div><label className="label">Payment Method</label><select className="input" {...register('paymentMethod')}><option>Cash</option><option>Bank Transfer</option><option>M-Pesa</option><option>Cheque</option></select></div>
+          <div><label className="label">Reference</label><input className="input" {...register('reference')} /></div>
+          <div><label className="label">Payment Date</label><input type="date" className="input" {...register('paymentDate', { required: 'Required' })} /></div>
+        </form>
+      </Modal>
+
+      {/* Credit / Loan Modal */}
+      <Modal
+        open={creditOpen}
+        onClose={() => setCreditOpen(false)}
+        title="Loan Application"
+        footer={<><button className="btn-outline" onClick={() => setCreditOpen(false)}>Cancel</button><button type="submit" form="credit-form" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Save</button></>}
+      >
+        <form id="credit-form" onSubmit={handleSubmit(saveCredit)} className="space-y-4">
+          <div><label className="label">Financier</label><select className="input" {...register('financier', { required: 'Required' })}><option value="">Select financier</option>{financiers.map((f) => <option key={f}>{f}</option>)}</select></div>
+          <div><label className="label">Loan Status</label><select className="input" {...register('status')}>{CREDIT_STATUS.map((s) => <option key={s}>{s}</option>)}</select></div>
+        </form>
+      </Modal>
+
+      {/* Assign Unit Modal */}
+      <Modal
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        title="Assign Unit"
+        footer={<><button className="btn-outline" onClick={() => setAssignOpen(false)}>Cancel</button><button type="submit" form="assign-form" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Assign</button></>}
+      >
+        <form id="assign-form" onSubmit={handleSubmit(doAssign)} className="space-y-4">
           <div>
-            <label className="label">Amount (KES)</label>
-            <input type="number" className="input" {...register('amount', { required: 'Required', min: 1 })} />
-          </div>
-          <div>
-            <label className="label">Payment Method</label>
-            <select className="input" {...register('paymentMethod')}>
-              <option>Cash</option>
-              <option>Bank Transfer</option>
-              <option>M-Pesa</option>
-              <option>Cheque</option>
+            <label className="label">Available Units (NTSA Cleared)</label>
+            <select className="input" {...register('vehicleId', { required: 'Required' })}>
+              <option value="">Select unit</option>
+              {assignableVehicles.map((v) => <option key={v.id} value={v.id}>{v.model} — {v.color} ({v.chassisNumber || v.id?.slice(-4)})</option>)}
             </select>
-          </div>
-          <div>
-            <label className="label">Reference</label>
-            <input className="input" {...register('reference')} placeholder="Transaction code / cheque no." />
-          </div>
-          <div>
-            <label className="label">Payment Date</label>
-            <input type="date" className="input" {...register('paymentDate', { required: 'Required' })} />
+            {assignableVehicles.length === 0 && <p className="mt-1 text-xs text-amber-600">No NTSA-cleared units available.</p>}
           </div>
         </form>
       </Modal>
 
-      {/* Credit Modal */}
+      {/* Dispatch Modal */}
       <Modal
-        open={creditOpen}
-        onClose={() => setCreditOpen(false)}
-        title="Credit Application"
-        footer={
-          <>
-            <button className="btn-outline" onClick={() => setCreditOpen(false)}>Cancel</button>
-            <button type="submit" form="credit-form" className="btn-primary" disabled={isSubmitting}>
-              {isSubmitting && <ButtonLoader />} Submit
-            </button>
-          </>
-        }
+        open={dispatchOpen}
+        onClose={() => setDispatchOpen(false)}
+        title="Dispatch Tuk-Tuk"
+        footer={<><button className="btn-outline" onClick={() => setDispatchOpen(false)}>Cancel</button><button type="submit" form="dispatch-form" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Confirm Dispatch</button></>}
       >
-        <form id="credit-form" onSubmit={handleSubmit(submitCredit)} className="space-y-4">
-          <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
-            <p>Customer: <b className="text-slate-700">{customer?.name}</b></p>
-            <p>Inquiry: <b className="text-slate-700">#{inquiry?.id?.slice(-6) || '-'}</b></p>
-            <p>Branch: <b className="text-slate-700">{sale.branch || '-'}</b></p>
-          </div>
-          <div>
-            <label className="label">Financier</label>
-            <select className="input" {...register('financier', { required: 'Required' })}>
-              <option value="">Select financier</option>
-              {financiers.map((f) => <option key={f} value={f}>{f}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Status</label>
-            <select className="input" {...register('status')}>
-              {CREDIT_STATUS.map((s) => <option key={s}>{s}</option>)}
-            </select>
-          </div>
+        <form id="dispatch-form" onSubmit={handleSubmit(doDispatch)} className="space-y-4">
+          <div><label className="label">Delivery Date</label><input type="date" className="input" {...register('deliveryDate', { required: 'Required' })} /></div>
+          <div><label className="label">Received By</label><input className="input" {...register('receivedBy', { required: 'Required' })} /></div>
+          <div><label className="label">Remarks</label><textarea rows={3} className="input" {...register('remarks')} /></div>
         </form>
       </Modal>
 
@@ -804,51 +778,19 @@ export default function SaleDetails() {
         open={invoiceOpen}
         onClose={() => setInvoiceOpen(false)}
         title="Generate Invoice"
-        footer={
-          <>
-            <button className="btn-outline" onClick={() => setInvoiceOpen(false)}>Cancel</button>
-            <button type="submit" form="invoice-form" className="btn-primary" disabled={isSubmitting}>
-              {isSubmitting && <ButtonLoader />} Save Invoice
-            </button>
-          </>
-        }
+        footer={<><button className="btn-outline" onClick={() => setInvoiceOpen(false)}>Cancel</button><button type="submit" form="invoice-form" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Save Invoice</button></>}
       >
         <form id="invoice-form" onSubmit={handleSubmit(saveInvoice)} className="space-y-4">
-          <div>
-            <label className="label">Customer Name</label>
-            <input className="input" value={customer?.name || ''} disabled />
-          </div>
-          <div>
-            <label className="label">Chassis Number</label>
-            <input className="input" value={vehicle?.chassisNumber || ''} disabled />
-          </div>
-          <div>
-            <label className="label">Registration No.</label>
-            <input className="input" {...register('registrationNo')} placeholder="e.g. KMEA 123A" />
+          <div><label className="label">Customer Name</label><input className="input" value={customer?.name || ''} disabled /></div>
+          <div><label className="label">Chassis Number</label><input className="input" value={vehicle?.chassisNumber || ''} disabled /></div>
+          <div><label className="label">Registration No.</label><input className="input" {...register('registrationNo')} placeholder="e.g. KMEA 123A" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Total Amount (KES)</label><input className="input" value={formatCurrency(sale.price)} disabled /></div>
+            <div><label className="label">VAT Rate</label><select className="input" {...register('vatRate')}><option value="0.16">16%</option><option value="0.08">8%</option><option value="0">0% (Exempt)</option></select></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Total Amount (KES)</label>
-              <input className="input" value={formatCurrency(sale.price)} disabled />
-            </div>
-            <div>
-              <label className="label">VAT Rate</label>
-              <select className="input" {...register('vatRate')}>
-                <option value="0.16">16%</option>
-                <option value="0.08">8%</option>
-                <option value="0">0% (Exempt)</option>
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Invoice No.</label>
-              <input className="input" {...register('invoiceNumber')} />
-            </div>
-            <div>
-              <label className="label">Invoice Date</label>
-              <input type="date" className="input" {...register('invoiceDate')} />
-            </div>
+            <div><label className="label">Invoice No.</label><input className="input" {...register('invoiceNumber')} /></div>
+            <div><label className="label">Invoice Date</label><input type="date" className="input" {...register('invoiceDate')} /></div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 text-sm">
             <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{formatCurrency(sale.price)}</span></div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { FiPlus, FiEdit2, FiTrash2, FiEye, FiPhone, FiMail } from 'react-icons/fi'
@@ -12,7 +12,7 @@ import EmptyState from '../components/ui/EmptyState'
 import { ButtonLoader } from '../components/ui/Spinner'
 import { useAsyncList } from '../hooks/useAsync'
 import { useAuth } from '../contexts/AuthContext'
-import { customerService, inquiryService, inventoryService } from '../services'
+import { customerService, saleService } from '../services'
 import { CUSTOMER_TYPES } from '../constants'
 import { formatDate } from '../utils/helpers'
 
@@ -20,7 +20,6 @@ export default function Customers() {
   const { profile } = useAuth()
   const navigate = useNavigate()
   const { items, loading, setItems, reload } = useAsyncList(() => customerService.getAll())
-  const [vehicles, setVehicles] = useState([])
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [deleteId, setDeleteId] = useState(null)
@@ -32,10 +31,6 @@ export default function Customers() {
     formState: { errors, isSubmitting },
   } = useForm()
 
-  useEffect(() => {
-    inventoryService.getAll().then(setVehicles)
-  }, [])
-
   const openCreate = () => {
     setEditing(null)
     reset({
@@ -46,9 +41,8 @@ export default function Customers() {
       email: '',
       address: '',
       notes: '',
-      vehicleId: '',
       salesAgent: profile?.name || '',
-      autoInquiry: true,
+      autoLead: true,
     })
     setModalOpen(true)
   }
@@ -68,21 +62,17 @@ export default function Customers() {
       } else {
         const payload = { ...data, createdBy: profile.uid }
         const customerId = await customerService.create(payload)
-        // Auto-create an inquiry so the sales agent can move it through the
-        // status pipeline (New → Contacted → Negotiating → Converted).
-        if (data.autoInquiry) {
-          const inquiryId = await inquiryService.create({
+        // A customer walking in to inquire starts a sale lead (status Inquiry).
+        if (data.autoLead) {
+          const saleId = await saleService.createLead({
             customerId,
-            vehicleId: data.vehicleId || '',
             salesAgent: data.salesAgent || profile?.name || '',
             salesAgentId: profile.uid,
-            status: 'New',
-            notes: 'Auto-created at customer registration',
           })
-          toast.success('Customer registered. Inquiry created.')
+          toast.success('Customer registered. Sale lead created.')
           setModalOpen(false)
           reload()
-          navigate(`/inquiries/${inquiryId}`)
+          navigate(`/sales/${saleId}`)
           return
         }
         toast.success('Customer created')
@@ -249,33 +239,23 @@ export default function Customers() {
               <div className="mt-2 flex items-center gap-2 sm:col-span-2">
                 <input
                   type="checkbox"
-                  id="autoInquiry"
+                  id="autoLead"
                   className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                  {...register('autoInquiry')}
+                  {...register('autoLead')}
                   defaultChecked
                 />
-                <label htmlFor="autoInquiry" className="text-sm text-slate-600">
-                  Create an inquiry automatically (customer walked in)
+                <label htmlFor="autoLead" className="text-sm text-slate-600">
+                  Start a sale lead automatically (customer walked in to inquire)
                 </label>
               </div>
 
-              {watch('autoInquiry') && (
-                <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:col-span-2 sm:grid-cols-2">
-                  <div>
-                    <label className="label">Vehicle of Interest</label>
-                    <select className="input" {...register('vehicleId')}>
-                      <option value="">None / undecided</option>
-                      {vehicles.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.model} — {v.color} ({v.chassisNumber || v.id?.slice(-4)}) · {v.status}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Sales Agent</label>
-                    <input className="input" {...register('salesAgent')} placeholder="Assigned agent" />
-                  </div>
+              {watch('autoLead') && (
+                <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                  <label className="label">Sales Agent</label>
+                  <input className="input" {...register('salesAgent')} placeholder="Assigned agent" />
+                  <p className="mt-2 text-xs text-slate-400">
+                    A sale will be created with status <b>Inquiry</b>. You can then agree to proceed and capture payment.
+                  </p>
                 </div>
               )}
             </>

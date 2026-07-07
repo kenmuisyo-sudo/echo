@@ -17,12 +17,43 @@ export default function Badge({ children, variant = 'slate', className }) {
 
 export const statusVariant = (status) => {
   const s = String(status || '').toLowerCase()
-  if (['completed', 'confirmed', 'approved', 'delivered', 'converted', 'available', 'disbursed'].includes(s))
+  if (
+    [
+      'completed',
+      'confirmed',
+      'approved',
+      'delivered',
+      'converted',
+      'available',
+      'disbursed',
+      'dispatched',
+      'ntsa cleared',
+      'ntsa transfer',
+      'payment confirmed',
+      'loan accepted',
+      'unit assigned',
+    ].includes(s)
+  )
     return 'green'
-  if (['pending', 'new', 'payment pending'].includes(s)) return 'amber'
-  if (['cancelled', 'rejected', 'sold', 'inactive'].includes(s)) return 'red'
-  if (['processing', 'in progress', 'workshop', 'ntsa', 'reserved', 'contacted', 'negotiating'].includes(s))
+  if (
+    [
+      'pending',
+      'new',
+      'payment pending',
+      'inquiry',
+      'agreed',
+      'loan requested',
+      'loan submitted',
+      'ordered',
+      'order received',
+      'released',
+      'received',
+      'ntsa booking',
+    ].includes(s)
+  )
+    return 'amber'
+  if (['cancelled', 'rejected', 'sold', 'inactive', 'loan rejected'].includes(s)) return 'red'
+  if (['processing', 'in progress', 'workshop', 'reserved', 'contacted', 'negotiating'].includes(s))
     return 'blue'
-  if (['ready for dispatch'].includes(s)) return 'accent'
   return 'slate'
 }
