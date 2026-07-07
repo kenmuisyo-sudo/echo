@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { FiPlus, FiEdit2, FiTrash2, FiEye, FiPhone, FiMail } from 'react-icons/fi'
 import toast from 'react-hot-toast'
@@ -12,13 +12,15 @@ import EmptyState from '../components/ui/EmptyState'
 import { ButtonLoader } from '../components/ui/Spinner'
 import { useAsyncList } from '../hooks/useAsync'
 import { useAuth } from '../contexts/AuthContext'
-import { customerService } from '../services'
+import { customerService, inquiryService, inventoryService } from '../services'
 import { CUSTOMER_TYPES } from '../constants'
 import { formatDate } from '../utils/helpers'
 
 export default function Customers() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const { items, loading, setItems, reload } = useAsyncList(() => customerService.getAll())
+  const [vehicles, setVehicles] = useState([])
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [deleteId, setDeleteId] = useState(null)
@@ -26,12 +28,28 @@ export default function Customers() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm()
 
+  useEffect(() => {
+    inventoryService.getAll().then(setVehicles)
+  }, [])
+
   const openCreate = () => {
     setEditing(null)
-    reset({ name: '', phone: '', idNumber: '', customerType: 'Passenger', email: '', address: '', notes: '' })
+    reset({
+      name: '',
+      phone: '',
+      idNumber: '',
+      customerType: 'Passenger',
+      email: '',
+      address: '',
+      notes: '',
+      vehicleId: '',
+      salesAgent: profile?.name || '',
+      autoInquiry: true,
+    })
     setModalOpen(true)
   }
 
@@ -49,7 +67,24 @@ export default function Customers() {
         toast.success('Customer updated')
       } else {
         const payload = { ...data, createdBy: profile.uid }
-        await customerService.create(payload)
+        const customerId = await customerService.create(payload)
+        // Auto-create an inquiry so the sales agent can move it through the
+        // status pipeline (New → Contacted → Negotiating → Converted).
+        if (data.autoInquiry) {
+          const inquiryId = await inquiryService.create({
+            customerId,
+            vehicleId: data.vehicleId || '',
+            salesAgent: data.salesAgent || profile?.name || '',
+            salesAgentId: profile.uid,
+            status: 'New',
+            notes: 'Auto-created at customer registration',
+          })
+          toast.success('Customer registered. Inquiry created.')
+          setModalOpen(false)
+          reload()
+          navigate(`/inquiries/${inquiryId}`)
+          return
+        }
         toast.success('Customer created')
         reload()
       }
@@ -208,6 +243,43 @@ export default function Customers() {
             <label className="label">Notes</label>
             <textarea rows={3} className="input" {...register('notes')} />
           </div>
+
+          {!editing && (
+            <>
+              <div className="mt-2 flex items-center gap-2 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  id="autoInquiry"
+                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                  {...register('autoInquiry')}
+                  defaultChecked
+                />
+                <label htmlFor="autoInquiry" className="text-sm text-slate-600">
+                  Create an inquiry automatically (customer walked in)
+                </label>
+              </div>
+
+              {watch('autoInquiry') && (
+                <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:col-span-2 sm:grid-cols-2">
+                  <div>
+                    <label className="label">Vehicle of Interest</label>
+                    <select className="input" {...register('vehicleId')}>
+                      <option value="">None / undecided</option>
+                      {vehicles.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.model} — {v.color} ({v.chassisNumber || v.id?.slice(-4)}) · {v.status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Sales Agent</label>
+                    <input className="input" {...register('salesAgent')} placeholder="Assigned agent" />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </form>
       </Modal>
 

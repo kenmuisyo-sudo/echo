@@ -5,11 +5,19 @@ import { useState } from 'react'
 import AppLayout from '../components/layouts/AppLayout'
 import PageHeader from '../components/ui/PageHeader'
 import Card from '../components/ui/Card'
-import Badge from '../components/ui/Badge'
+import Badge, { statusVariant } from '../components/ui/Badge'
+import StatusSteps from '../components/ui/StatusSteps'
 import Modal from '../components/ui/Modal'
 import { ButtonLoader, SectionLoader } from '../components/ui/Spinner'
 import { useAsync } from '../hooks/useAsync'
-import { customerService, inquiryService, saleService } from '../services'
+import {
+  customerService,
+  inquiryService,
+  saleService,
+  workshopService,
+  ntsaService,
+  dispatchService,
+} from '../services'
 import { CUSTOMER_TYPES } from '../constants'
 import { formatCurrency, formatDate } from '../utils/helpers'
 import { useForm } from 'react-hook-form'
@@ -17,15 +25,24 @@ import { useForm } from 'react-hook-form'
 export default function CustomerDetails() {
   const { id } = useParams()
   const { data, loading, reload } = useAsync(async () => {
-    const [customer, inquiries, sales] = await Promise.all([
+    const [customer, inquiries, sales, workshops, ntsa, dispatches] = await Promise.all([
       customerService.getById(id),
       inquiryService.getAll(),
       saleService.getAll(),
+      workshopService.getAll(),
+      ntsaService.getAll(),
+      dispatchService.getAll(),
     ])
+    const customerInquiries = inquiries.filter((i) => i.customerId === id)
+    const customerSales = sales.filter((s) => s.customerId === id)
+    const saleIds = customerSales.map((s) => s.id)
     return {
       customer,
-      inquiries: inquiries.filter((i) => i.customerId === id),
-      sales: sales.filter((s) => s.customerId === id),
+      inquiries: customerInquiries,
+      sales: customerSales,
+      workshops: workshops.filter((w) => saleIds.includes(w.saleId)),
+      ntsa: ntsa.filter((n) => saleIds.includes(n.saleId)),
+      dispatches: dispatches.filter((d) => saleIds.includes(d.saleId)),
     }
   }, [id])
 
@@ -45,7 +62,7 @@ export default function CustomerDetails() {
     )
   }
 
-  const { customer, inquiries, sales } = data
+  const { customer, inquiries, sales, workshops, ntsa, dispatches } = data
   if (!customer) {
     return (
       <AppLayout>
@@ -54,6 +71,32 @@ export default function CustomerDetails() {
       </AppLayout>
     )
   }
+
+  // Build the customer's status pipeline across the most advanced sale.
+  const latestSale = sales[0]
+  const latestInquiry = inquiries[0]
+  const workshop = latestSale ? workshops.find((w) => w.saleId === latestSale.id) : null
+  const ntsaProc = latestSale ? ntsa.find((n) => n.saleId === latestSale.id) : null
+  const dispatch = latestSale ? dispatches.find((d) => d.saleId === latestSale.id) : null
+
+  const inquiryDone = !!latestInquiry && ['Converted', 'Cancelled'].includes(latestInquiry.status)
+  const inquiryActive = !!latestInquiry && !inquiryDone
+  const saleDone = !!latestSale
+  const saleActive = !!latestInquiry && inquiryDone && !saleDone
+  const wsDone = workshop?.status === 'Completed'
+  const wsActive = !!latestSale && !wsDone
+  const ntsaDone = ntsaProc?.status === 'Completed'
+  const ntsaActive = !!latestSale && wsDone && !ntsaDone
+  const dispatchDone = latestSale?.status === 'Completed' || !!dispatch
+  const dispatchActive = !!latestSale && ntsaDone && !dispatchDone
+
+  const pipeline = [
+    { label: 'Inquiry', status: inquiryDone ? 'done' : inquiryActive ? 'active' : 'pending' },
+    { label: 'Sale', status: saleDone ? 'done' : saleActive ? 'active' : 'pending' },
+    { label: 'Workshop', status: wsDone ? 'done' : wsActive ? 'active' : 'pending' },
+    { label: 'NTSA', status: ntsaDone ? 'done' : ntsaActive ? 'active' : 'pending' },
+    { label: 'Dispatch', status: dispatchDone ? 'done' : dispatchActive ? 'active' : 'pending' },
+  ]
 
   const openEdit = () => {
     reset(customer)
@@ -85,6 +128,29 @@ export default function CustomerDetails() {
           </button>
         }
       />
+
+      {/* Status pipeline */}
+      <Card className="mb-4">
+        <h3 className="mb-4 font-semibold text-slate-700">Status Pipeline</h3>
+        <StatusSteps steps={pipeline} />
+        {(latestInquiry || latestSale) && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            {latestInquiry && (
+              <Link to={`/inquiries/${latestInquiry.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                Inquiry: <Badge variant={statusVariant(latestInquiry.status)}>{latestInquiry.status}</Badge>
+              </Link>
+            )}
+            {latestSale && (
+              <Link to={`/sales/${latestSale.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                Sale: <Badge variant={statusVariant(latestSale.status)}>{latestSale.status}</Badge>
+              </Link>
+            )}
+            {workshop && <span>Workshop: <Badge variant={statusVariant(workshop.status)}>{workshop.status}</Badge></span>}
+            {ntsaProc && <span>NTSA: <Badge variant={statusVariant(ntsaProc.status)}>{ntsaProc.status}</Badge></span>}
+            {dispatch && <span>Dispatch: <Badge variant="green">Completed</Badge></span>}
+          </div>
+        )}
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
