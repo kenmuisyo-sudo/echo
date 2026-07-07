@@ -11,7 +11,6 @@ import Sales from './pages/Sales'
 import SaleDetails from './pages/SaleDetails'
 import Inventory from './pages/Inventory'
 import VehicleDetails from './pages/VehicleDetails'
-import Workshop from './pages/Workshop'
 import Reports from './pages/Reports'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
@@ -38,8 +37,6 @@ export default function App() {
 
       <Route path="/inventory" element={<ProtectedRoute allowedRoles={ALL}><Inventory /></ProtectedRoute>} />
       <Route path="/inventory/:id" element={<ProtectedRoute allowedRoles={ALL}><VehicleDetails /></ProtectedRoute>} />
-
-      <Route path="/workshop" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.WORKSHOP_OFFICER]}><Workshop /></ProtectedRoute>} />
 
       <Route path="/reports" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.FINANCE_OFFICER]}><Reports /></ProtectedRoute>} />
 

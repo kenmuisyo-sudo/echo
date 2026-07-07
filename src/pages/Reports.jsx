@@ -6,7 +6,6 @@ import {
   FiUsers,
   FiTruck,
   FiShoppingCart,
-  FiTool,
   FiDollarSign,
 } from 'react-icons/fi'
 import toast from 'react-hot-toast'
@@ -21,7 +20,6 @@ import {
   saleService,
   customerService,
   inventoryService,
-  workshopService,
   creditService,
 } from '../services'
 import { downloadFile, toCSV, formatCurrency, formatDate } from '../utils/helpers'
@@ -31,7 +29,6 @@ const REPORT_TYPES = [
   { key: 'customers', label: 'Customer Report', icon: FiUsers },
   { key: 'inventory', label: 'Inventory Report', icon: FiTruck },
   { key: 'loans', label: 'Loan Report', icon: FiDollarSign },
-  { key: 'workshop', label: 'Workshop Report', icon: FiTool },
 ]
 
 export default function Reports() {
@@ -40,14 +37,13 @@ export default function Reports() {
   const [columns, setColumns] = useState([])
 
   const { data, loading } = useAsync(async () => {
-    const [sales, customers, vehicles, workshop, credit] = await Promise.all([
+    const [sales, customers, vehicles, credit] = await Promise.all([
       saleService.getAll(),
       customerService.getAll(),
       inventoryService.getAll(),
-      workshopService.getAll(),
       creditService.getAll(),
     ])
-    return { sales, customers, vehicles, workshop, credit }
+    return { sales, customers, vehicles, credit }
   }, [])
 
   useEffect(() => {
@@ -132,24 +128,6 @@ export default function Reports() {
             submittedAt: formatDate(c.submittedAt),
           }
         })
-        break
-      case 'workshop':
-        cols = [
-          { key: 'saleId', label: 'Sale ID' },
-          { key: 'battery', label: 'Battery' },
-          { key: 'motor', label: 'Motor' },
-          { key: 'accessories', label: 'Accessories' },
-          { key: 'status', label: 'Status' },
-          { key: 'completedBy', label: 'Completed By' },
-        ]
-        r = data.workshop.map((w) => ({
-          saleId: w.saleId,
-          battery: w.batteryInspection ? 'Yes' : 'No',
-          motor: w.motorInspection ? 'Yes' : 'No',
-          accessories: w.accessoriesInstalled ? 'Yes' : 'No',
-          status: w.status,
-          completedBy: w.completedBy || '-',
-        }))
         break
       default:
         break

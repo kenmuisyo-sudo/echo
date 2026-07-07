@@ -57,7 +57,7 @@ export default function Login() {
           </h1>
           <p className="mt-4 max-w-sm text-white/80">
             From customer inquiry to vehicle handover — manage customers, inventory, sales,
-            workshop, NTSA and dispatch in one place.
+            credit loans and dispatch in one place.
           </p>
         </motion.div>
         <p className="text-xs text-white/50">© {new Date().getFullYear()} e-Mobility Co. All rights reserved.</p>

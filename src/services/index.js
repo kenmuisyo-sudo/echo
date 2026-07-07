@@ -3,7 +3,6 @@ export { inventoryService, MAX_VEHICLE_IMAGES, MIN_VEHICLE_IMAGES } from './inve
 export { saleService } from './salesService'
 export { paymentService } from './paymentService'
 export { creditService } from './creditService'
-export { workshopService } from './workshopService'
 export { notificationService } from './notificationService'
 export { userService } from './userService'
 export { settingsService } from './settingsService'
