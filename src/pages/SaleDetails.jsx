@@ -790,36 +790,36 @@ export default function SaleDetails() {
 
       {/* Payment Modal */}
       <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Record Payment">
-        <form onSubmit={handleSubmit(recordPayment)} className="space-y-4">
-          <div><label className="label">Amount (KES)</label><input type="number" className="input" {...register('amount', { required: 'Required', min: 1 })} /></div>
-          <div><label className="label">Payment Method</label><select className="input" {...register('paymentMethod')}><option>Cash</option><option>Bank Transfer</option><option>M-Pesa</option><option>Cheque</option></select></div>
-          <div><label className="label">Reference</label><input className="input" {...register('reference')} /></div>
-          <div><label className="label">Payment Date</label><input type="date" className="input" {...register('paymentDate', { required: 'Required' })} /></div>
+        <form onSubmit={payForm.handleSubmit(recordPayment)} className="space-y-4">
+          <div><label className="label">Amount (KES)</label><input type="number" className="input" {...payForm.register('amount', { required: 'Required', min: 1 })} /></div>
+          <div><label className="label">Payment Method</label><select className="input" {...payForm.register('paymentMethod')}><option>Cash</option><option>Bank Transfer</option><option>M-Pesa</option><option>Cheque</option></select></div>
+          <div><label className="label">Reference</label><input className="input" {...payForm.register('reference')} /></div>
+          <div><label className="label">Payment Date</label><input type="date" className="input" {...payForm.register('paymentDate', { required: 'Required' })} /></div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setPayOpen(false)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Record</button>
+            <button type="submit" className="btn-primary" disabled={payForm.formState.isSubmitting}>{payForm.formState.isSubmitting && <ButtonLoader />} Record</button>
           </div>
         </form>
       </Modal>
 
       {/* Credit / Loan Modal */}
       <Modal open={creditOpen} onClose={() => setCreditOpen(false)} title="Loan Application">
-        <form onSubmit={handleSubmit(saveCredit)} className="space-y-4">
-          <div><label className="label">Financier</label><select className="input" {...register('financier', { required: 'Required' })}><option value="">Select financier</option>{financiers.map((f) => <option key={f}>{f}</option>)}</select></div>
-          <div><label className="label">Loan Status</label><select className="input" {...register('status')}>{CREDIT_STATUS.map((s) => <option key={s}>{s}</option>)}</select></div>
+        <form onSubmit={creditForm.handleSubmit(saveCredit)} className="space-y-4">
+          <div><label className="label">Financier</label><select className="input" {...creditForm.register('financier', { required: 'Required' })}><option value="">Select financier</option>{financiers.map((f) => <option key={f}>{f}</option>)}</select></div>
+          <div><label className="label">Loan Status</label><select className="input" {...creditForm.register('status')}>{CREDIT_STATUS.map((s) => <option key={s}>{s}</option>)}</select></div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setCreditOpen(false)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Save</button>
+            <button type="submit" className="btn-primary" disabled={creditForm.formState.isSubmitting}>{creditForm.formState.isSubmitting && <ButtonLoader />} Save</button>
           </div>
         </form>
       </Modal>
 
       {/* Assign Unit Modal */}
       <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title="Assign Unit">
-        <form onSubmit={handleSubmit(doAssign)} className="space-y-4">
+        <form onSubmit={assignForm.handleSubmit(doAssign)} className="space-y-4">
           <div>
             <label className="label">Available Units (NTSA Cleared)</label>
-            <select className="input" {...register('vehicleId', { required: 'Required' })}>
+            <select className="input" {...assignForm.register('vehicleId', { required: 'Required' })}>
               <option value="">Select unit</option>
               {assignableVehicles.map((v) => <option key={v.id} value={v.id}>{v.model} — {v.color} ({v.chassisNumber || v.id?.slice(-4)})</option>)}
             </select>
@@ -827,37 +827,37 @@ export default function SaleDetails() {
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setAssignOpen(false)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Assign</button>
+            <button type="submit" className="btn-primary" disabled={assignForm.formState.isSubmitting}>{assignForm.formState.isSubmitting && <ButtonLoader />} Assign</button>
           </div>
         </form>
       </Modal>
 
       {/* Dispatch Modal */}
       <Modal open={dispatchOpen} onClose={() => setDispatchOpen(false)} title="Dispatch Tuk-Tuk">
-        <form onSubmit={handleSubmit(doDispatch)} className="space-y-4">
-          <div><label className="label">Delivery Date</label><input type="date" className="input" {...register('deliveryDate', { required: 'Required' })} /></div>
-          <div><label className="label">Received By</label><input className="input" {...register('receivedBy', { required: 'Required' })} /></div>
-          <div><label className="label">Remarks</label><textarea rows={3} className="input" {...register('remarks')} /></div>
+        <form onSubmit={dispatchForm.handleSubmit(doDispatch)} className="space-y-4">
+          <div><label className="label">Delivery Date</label><input type="date" className="input" {...dispatchForm.register('deliveryDate', { required: 'Required' })} /></div>
+          <div><label className="label">Received By</label><input className="input" {...dispatchForm.register('receivedBy', { required: 'Required' })} /></div>
+          <div><label className="label">Remarks</label><textarea rows={3} className="input" {...dispatchForm.register('remarks')} /></div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setDispatchOpen(false)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Confirm Dispatch</button>
+            <button type="submit" className="btn-primary" disabled={dispatchForm.formState.isSubmitting}>{dispatchForm.formState.isSubmitting && <ButtonLoader />} Confirm Dispatch</button>
           </div>
         </form>
       </Modal>
 
       {/* Invoice Modal */}
       <Modal open={invoiceOpen} onClose={() => setInvoiceOpen(false)} title="Generate Invoice">
-        <form onSubmit={handleSubmit(saveInvoice)} className="space-y-4">
+        <form onSubmit={invoiceForm.handleSubmit(saveInvoice)} className="space-y-4">
           <div><label className="label">Customer Name</label><input className="input" value={customer?.name || ''} disabled /></div>
           <div><label className="label">Chassis Number</label><input className="input" value={vehicle?.chassisNumber || ''} disabled /></div>
-          <div><label className="label">Registration No.</label><input className="input" {...register('registrationNo')} placeholder="e.g. KMEA 123A" /></div>
+          <div><label className="label">Registration No.</label><input className="input" {...invoiceForm.register('registrationNo')} placeholder="e.g. KMEA 123A" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">Total Amount (KES)</label><input className="input" value={formatCurrency(sale.price)} disabled /></div>
-            <div><label className="label">VAT Rate</label><select className="input" {...register('vatRate')}><option value="0.16">16%</option><option value="0.08">8%</option><option value="0">0% (Exempt)</option></select></div>
+            <div><label className="label">VAT Rate</label><select className="input" {...invoiceForm.register('vatRate')}><option value="0.16">16%</option><option value="0.08">8%</option><option value="0">0% (Exempt)</option></select></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="label">Invoice No.</label><input className="input" {...register('invoiceNumber')} /></div>
-            <div><label className="label">Invoice Date</label><input type="date" className="input" {...register('invoiceDate')} /></div>
+            <div><label className="label">Invoice No.</label><input className="input" {...invoiceForm.register('invoiceNumber')} /></div>
+            <div><label className="label">Invoice Date</label><input type="date" className="input" {...invoiceForm.register('invoiceDate')} /></div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 text-sm">
             <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{formatCurrency(sale.price)}</span></div>
@@ -866,7 +866,7 @@ export default function SaleDetails() {
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setInvoiceOpen(false)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Save Invoice</button>
+            <button type="submit" className="btn-primary" disabled={invoiceForm.formState.isSubmitting}>{invoiceForm.formState.isSubmitting && <ButtonLoader />} Save Invoice</button>
           </div>
         </form>
       </Modal>
