@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import {
@@ -85,66 +85,15 @@ export default function SaleDetails() {
   const [dispatchOpen, setDispatchOpen] = useState(false)
   const [invoiceOpen, setInvoiceOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { isSubmitting, errors },
-  } = useForm({ shouldUnregister: true })
 
-  // Reset form values AFTER each modal opens so the (now-mounted) fields
-  // receive the values. With shouldUnregister=true, calling reset() before
-  // the fields mount would lose the values.
-  useEffect(() => {
-    if (!agreeOpen || !data?.sale) return
-    reset({
-      paymentMethod: data.sale.paymentMethod || 'Cash',
-      price: data.sale.price > 0 ? data.sale.price : '',
-      branch: data.sale.branch || (data.settings?.branches || [])[0] || '',
-    })
-  }, [agreeOpen, data, reset])
-
-  useEffect(() => {
-    if (!payOpen || !data?.sale) return
-    reset({
-      amount: data.sale.price,
-      paymentMethod: 'Cash',
-      reference: '',
-      paymentDate: dayjs().format('YYYY-MM-DD'),
-    })
-  }, [payOpen, data, reset])
-
-  useEffect(() => {
-    if (!creditOpen || !data) return
-    reset({
-      financier: data.credit?.financier || '',
-      status: data.credit?.status || 'Loan Requested',
-    })
-  }, [creditOpen, data, reset])
-
-  useEffect(() => {
-    if (!assignOpen || !data?.sale) return
-    reset({ vehicleId: data.sale.vehicleId || '' })
-  }, [assignOpen, data, reset])
-
-  useEffect(() => {
-    if (!dispatchOpen || !data) return
-    reset({
-      deliveryDate: dayjs().format('YYYY-MM-DD'),
-      receivedBy: data.customer?.name || '',
-      remarks: '',
-    })
-  }, [dispatchOpen, data, reset])
-
-  useEffect(() => {
-    if (!invoiceOpen || !data?.sale) return
-    reset({
-      registrationNo: data.sale.registrationNo || data.vehicle?.registrationNo || '',
-      vatRate: VAT_RATE,
-      invoiceNumber: data.sale.invoiceNumber || invoiceNumber(),
-      invoiceDate: data.sale.invoicedAt ? dayjs(data.sale.invoicedAt).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-    })
-  }, [invoiceOpen, data, reset])
+  // Each modal gets its own useForm instance so fields from one modal can
+  // never interfere with another modal's validation.
+  const agreeForm = useForm()
+  const payForm = useForm()
+  const creditForm = useForm()
+  const assignForm = useForm()
+  const dispatchForm = useForm()
+  const invoiceForm = useForm()
 
   if (loading || !data) {
     return (
@@ -173,7 +122,14 @@ export default function SaleDetails() {
   const creditDocs = credit?.documents || {}
 
   // ----- Agree to proceed -----
-  const openAgree = () => setAgreeOpen(true)
+  const openAgree = () => {
+    agreeForm.reset({
+      paymentMethod: sale.paymentMethod || 'Cash',
+      price: sale.price > 0 ? sale.price : '',
+      branch: sale.branch || branches[0] || '',
+    })
+    setAgreeOpen(true)
+  }
 
   const doAgree = async (formData) => {
     try {
@@ -200,7 +156,15 @@ export default function SaleDetails() {
   }
 
   // ----- Cash payment -----
-  const openPayment = () => setPayOpen(true)
+  const openPayment = () => {
+    payForm.reset({
+      amount: sale.price,
+      paymentMethod: 'Cash',
+      reference: '',
+      paymentDate: dayjs().format('YYYY-MM-DD'),
+    })
+    setPayOpen(true)
+  }
 
   const recordPayment = async (formData) => {
     try {
@@ -263,7 +227,13 @@ export default function SaleDetails() {
   }
 
   // ----- Credit / loan flow -----
-  const openCredit = () => setCreditOpen(true)
+  const openCredit = () => {
+    creditForm.reset({
+      financier: credit?.financier || '',
+      status: credit?.status || 'Loan Requested',
+    })
+    setCreditOpen(true)
+  }
 
   const saveCredit = async (formData) => {
     try {
@@ -345,7 +315,10 @@ export default function SaleDetails() {
   }
 
   // ----- Assign unit -----
-  const openAssign = () => setAssignOpen(true)
+  const openAssign = () => {
+    assignForm.reset({ vehicleId: sale.vehicleId || '' })
+    setAssignOpen(true)
+  }
 
   const doAssign = async (formData) => {
     try {
@@ -370,7 +343,14 @@ export default function SaleDetails() {
   }
 
   // ----- Dispatch -----
-  const openDispatch = () => setDispatchOpen(true)
+  const openDispatch = () => {
+    dispatchForm.reset({
+      deliveryDate: dayjs().format('YYYY-MM-DD'),
+      receivedBy: customer?.name || '',
+      remarks: '',
+    })
+    setDispatchOpen(true)
+  }
 
   const doDispatch = async (formData) => {
     try {
@@ -388,7 +368,15 @@ export default function SaleDetails() {
   }
 
   // ----- Invoice -----
-  const openInvoice = () => setInvoiceOpen(true)
+  const openInvoice = () => {
+    invoiceForm.reset({
+      registrationNo: sale.registrationNo || vehicle?.registrationNo || '',
+      vatRate: VAT_RATE,
+      invoiceNumber: sale.invoiceNumber || invoiceNumber(),
+      invoiceDate: sale.invoicedAt ? dayjs(sale.invoicedAt).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+    })
+    setInvoiceOpen(true)
+  }
 
   const saveInvoice = async (formData) => {
     try {
@@ -771,31 +759,31 @@ export default function SaleDetails() {
 
       {/* Agree to Proceed Modal */}
       <Modal open={agreeOpen} onClose={() => setAgreeOpen(false)} title="Agree to Proceed">
-        <form onSubmit={handleSubmit(doAgree, () => toast.error('Please fill all required fields'))} className="space-y-4">
+        <form onSubmit={agreeForm.handleSubmit(doAgree)} className="space-y-4">
           <div>
             <label className="label">Payment Method</label>
-            <select className="input" {...register('paymentMethod', { required: 'Required' })}>
+            <select className="input" {...agreeForm.register('paymentMethod', { required: 'Required' })}>
               {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
             </select>
-            {errors.paymentMethod && <p className="mt-1 text-xs text-red-500">{errors.paymentMethod.message}</p>}
+            {agreeForm.formState.errors.paymentMethod && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.paymentMethod.message}</p>}
           </div>
           <div>
             <label className="label">Price (KES)</label>
-            <input type="number" className="input" {...register('price', { required: 'Price is required', min: { value: 1, message: 'Price must be greater than 0' } })} placeholder="Enter sale price" />
-            {errors.price && <p className="mt-1 text-xs text-red-500">{errors.price.message}</p>}
+            <input type="number" className="input" {...agreeForm.register('price', { required: 'Price is required', min: { value: 1, message: 'Price must be greater than 0' } })} placeholder="Enter sale price" />
+            {agreeForm.formState.errors.price && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.price.message}</p>}
           </div>
           <div>
             <label className="label">Branch</label>
-            <select className="input" {...register('branch', { required: 'Branch is required' })}>
+            <select className="input" {...agreeForm.register('branch', { required: 'Branch is required' })}>
               <option value="">Select branch</option>
               {branches.map((b) => <option key={b}>{b}</option>)}
             </select>
-            {errors.branch && <p className="mt-1 text-xs text-red-500">{errors.branch.message}</p>}
+            {agreeForm.formState.errors.branch && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.branch.message}</p>}
             {branches.length === 0 && <p className="mt-1 text-xs text-amber-600">No branches configured. Add them in Settings.</p>}
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setAgreeOpen(false)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>{isSubmitting && <ButtonLoader />} Proceed</button>
+            <button type="submit" className="btn-primary" disabled={agreeForm.formState.isSubmitting}>{agreeForm.formState.isSubmitting && <ButtonLoader />} Proceed</button>
           </div>
         </form>
       </Modal>
