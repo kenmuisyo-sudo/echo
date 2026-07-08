@@ -680,7 +680,7 @@ export default function SaleDetails() {
             </div>
           )}
 
-          {/* Credit flow */}
+          {/* Credit flow — loan status & updates */}
           {isCredit && ['Loan Requested', 'Loan Submitted', 'Loan Accepted', 'Loan Rejected'].includes(sale.status) && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 p-4">
@@ -690,39 +690,6 @@ export default function SaleDetails() {
                 </div>
                 <Badge variant={statusVariant(sale.status)}>{sale.status}</Badge>
                 {canManage && <button className="btn-outline" onClick={openCredit}><FiFileText /> Update Loan</button>}
-              </div>
-
-              {/* Documents */}
-              <div>
-                <p className="mb-3 text-sm font-medium text-slate-600">Supporting Documents</p>
-                <div className="space-y-3">
-                  {CREDIT_DOCUMENT_TYPES.map((doc) => {
-                    const files = creditDocs[doc.key] || []
-                    return (
-                      <div key={doc.key} className="rounded-xl border border-slate-100 p-3">
-                        <div className="mb-2 flex items-center justify-between">
-                          <p className="text-sm font-medium text-slate-700">{doc.label} <span className="text-xs text-slate-400">({files.length})</span></p>
-                          {canManage && (
-                            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
-                              {uploading ? 'Uploading…' : (<><FiUpload size={13} /> Upload</>)}
-                              <input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={(e) => uploadDocs(doc.key, e)} disabled={uploading} />
-                            </label>
-                          )}
-                        </div>
-                        {files.length > 0 ? (
-                          <div className="space-y-1">
-                            {files.map((d, i) => (
-                              <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5">
-                                <a href={d.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">📄 {d.name}</a>
-                                {canManage && <button className="btn-ghost p-1 text-red-500" onClick={() => removeDoc(doc.key, i)}><FiTrash2 size={14} /></button>}
-                              </div>
-                            ))}
-                          </div>
-                        ) : <p className="text-xs text-slate-400">No file uploaded</p>}
-                      </div>
-                    )
-                  })}
-                </div>
               </div>
 
               {/* Accepted → assign unit */}
@@ -735,6 +702,44 @@ export default function SaleDetails() {
               {sale.status === 'Loan Rejected' && (
                 <div className="rounded-xl bg-red-50 p-4 text-center text-sm text-red-600">Loan rejected. This sale cannot proceed.</div>
               )}
+            </div>
+          )}
+
+          {/* Credit documents — visible for ALL credit sales at any stage */}
+          {isCredit && sale.status !== 'Inquiry' && (
+            <div className="mb-4">
+              <div className="mb-3 flex items-center gap-2">
+                <FiFileText className="text-primary" />
+                <p className="text-sm font-medium text-slate-600">Credit Application Documents</p>
+              </div>
+              <div className="space-y-3">
+                {CREDIT_DOCUMENT_TYPES.map((doc) => {
+                  const files = creditDocs[doc.key] || []
+                  return (
+                    <div key={doc.key} className="rounded-xl border border-slate-100 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-700">{doc.label} <span className="text-xs text-slate-400">({files.length})</span></p>
+                        {canManage && (
+                          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
+                            {uploading ? 'Uploading…' : (<><FiUpload size={13} /> Upload</>)}
+                            <input type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={(e) => uploadDocs(doc.key, e)} disabled={uploading} />
+                          </label>
+                        )}
+                      </div>
+                      {files.length > 0 ? (
+                        <div className="space-y-1">
+                          {files.map((d, i) => (
+                            <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5">
+                              <a href={d.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">📄 {d.name}</a>
+                              {canManage && <button className="btn-ghost p-1 text-red-500" onClick={() => removeDoc(doc.key, i)}><FiTrash2 size={14} /></button>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : <p className="text-xs text-slate-400">No file uploaded</p>}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
 
@@ -861,6 +866,12 @@ export default function SaleDetails() {
             </select>
             {agreeForm.formState.errors.paymentMethod && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.paymentMethod.message}</p>}
           </div>
+          {agreeForm.watch('paymentMethod') === 'Credit' && (
+            <div className="rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+              <FiFileText className="mr-1 inline" size={14} />
+              Credit applications require supporting documents (National ID, KRA PIN, Driving License, Guarantor's Documents). You will be prompted to upload them after proceeding.
+            </div>
+          )}
           <div>
             <label className="label">Price (KES)</label>
             <input type="number" className="input" {...agreeForm.register('price', { required: 'Price is required', min: { value: 1, message: 'Price must be greater than 0' } })} placeholder="Enter sale price" />
