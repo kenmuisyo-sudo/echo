@@ -57,7 +57,8 @@ export const VEHICLE_SALE_STAGES = ['Reserved', 'Sold', 'Delivered']
 export const VEHICLE_STATUS = [...VEHICLE_PROCUREMENT_STAGES, ...VEHICLE_SALE_STAGES]
 
 // Vehicles in these statuses are available to be assigned to a customer.
-export const VEHICLE_ASSIGNABLE_STATUS = ['NTSA Cleared']
+// A vehicle can be allocated while NTSA is still processing it.
+export const VEHICLE_ASSIGNABLE_STATUS = ['NTSA Booking', 'NTSA Cleared']
 
 export const VEHICLE_MODELS = ['EcoRider Pro', 'CargoMax X1', 'CityCab Deluxe', 'FleetRunner S', 'Hauler HD']
 
@@ -69,10 +70,12 @@ export const CUSTOMER_TYPES = ['Passenger', 'Cargo']
 // Sale (customer journey) statuses.
 // Cash path:
 //   Inquiry → Agreed → Payment Pending → Payment Confirmed → Unit Assigned →
+//   Invoice Raised → Pre-Delivery Service → Document Verification →
 //   NTSA Transfer → Dispatched
 // Credit path:
 //   Inquiry → Agreed → Loan Requested → Loan Submitted → Loan Accepted →
-//   Unit Assigned → NTSA Transfer → Dispatched
+//   Unit Assigned → Invoice Raised → Pre-Delivery Service →
+//   Document Verification → NTSA Transfer → Dispatched
 //   (or → Loan Rejected, terminal)
 // ---------------------------------------------------------------------------
 export const SALE_FLOW_CASH = [
@@ -81,6 +84,9 @@ export const SALE_FLOW_CASH = [
   'Payment Pending',
   'Payment Confirmed',
   'Unit Assigned',
+  'Invoice Raised',
+  'Pre-Delivery Service',
+  'Document Verification',
   'NTSA Transfer',
   'Dispatched',
 ]
@@ -92,6 +98,9 @@ export const SALE_FLOW_CREDIT = [
   'Loan Submitted',
   'Loan Accepted',
   'Unit Assigned',
+  'Invoice Raised',
+  'Pre-Delivery Service',
+  'Document Verification',
   'NTSA Transfer',
   'Dispatched',
 ]
@@ -107,6 +116,9 @@ export const SALE_STATUS = [
   'Loan Accepted',
   'Loan Rejected',
   'Unit Assigned',
+  'Invoice Raised',
+  'Pre-Delivery Service',
+  'Document Verification',
   'NTSA Transfer',
   'Dispatched',
 ]
@@ -166,6 +178,16 @@ export const CUSTOMER_DOCUMENT_TYPES = [
 
 // Standard VAT rate applied on the vehicle price (Kenya 16%).
 export const VAT_RATE = 0.16
+
+// Pre-delivery service checklist completed at the spare parts shop before
+// the tuk-tuk is released for document verification and NTSA transfer.
+export const PRE_DELIVERY_CHECKLIST = [
+  { key: 'canvas', label: 'Canvas fitted' },
+  { key: 'doors', label: 'Doors fitted' },
+  { key: 'ntsaYellowLine', label: 'NTSA yellow line painted' },
+]
+
+export const WARRANTY_PERIOD_MONTHS = 6
 
 export const WORKSHOP_STATUS = ['Pending', 'In Progress', 'Completed']
 

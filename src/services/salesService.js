@@ -82,8 +82,35 @@ export const saleService = {
   },
 
   /**
+   * Pre-delivery service completed at the spare parts shop.
+   * Stores the checklist items that were completed.
+   */
+  completePreDelivery: async (saleId, checklist) => {
+    await updateById(PATH, saleId, {
+      status: 'Pre-Delivery Service',
+      preDeliveryChecklist: checklist,
+      preDeliveryAt: Date.now(),
+    })
+  },
+
+  /**
+   * Documents verified — move to Document Verification stage.
+   */
+  moveToDocumentVerification: async (saleId) => {
+    await updateById(PATH, saleId, { status: 'Document Verification', documentsVerifiedAt: Date.now() })
+  },
+
+  /**
+   * Documents verified — move to NTSA Transfer stage.
+   */
+  verifyDocuments: async (saleId) => {
+    await updateById(PATH, saleId, { status: 'NTSA Transfer', documentsVerifiedAt: Date.now() })
+  },
+
+  /**
    * Tuk-tuk dispatched / delivered to the customer. Vehicle → Delivered,
-   * sale → Dispatched.
+   * sale → Dispatched. Warranty details are captured here and forwarded
+   * to the spares department for future claims.
    */
   dispatch: async (saleId, vehicleId, details = {}) => {
     await updateById(PATH, saleId, {
@@ -96,7 +123,8 @@ export const saleService = {
 
   /**
    * Save the sale's invoice details (registration no, VAT, etc.) and stamp
-   * an invoice number if one is not already present.
+   * an invoice number if one is not already present. Moves the sale to
+   * "Invoice Raised" status.
    */
   saveInvoice: async (saleId, { registrationNo, vatRate = VAT_RATE, invoiceNumber }) => {
     const sale = await getById(PATH, saleId)
@@ -110,6 +138,7 @@ export const saleService = {
       totalAmount: price + vatAmount,
       invoiceNumber: invoiceNumber || sale.invoiceNumber,
       invoicedAt: sale.invoicedAt || Date.now(),
+      status: 'Invoice Raised',
     }
     await updateById(PATH, saleId, payload)
     return { ...sale, ...payload }

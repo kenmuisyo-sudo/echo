@@ -39,6 +39,8 @@ import {
   CREDIT_STATUS,
   CREDIT_DOCUMENT_TYPES,
   CUSTOMER_DOCUMENT_TYPES,
+  PRE_DELIVERY_CHECKLIST,
+  WARRANTY_PERIOD_MONTHS,
   VAT_RATE,
   SALE_FLOW_CASH,
   SALE_FLOW_CREDIT,
@@ -348,6 +350,8 @@ export default function SaleDetails() {
       deliveryDate: dayjs().format('YYYY-MM-DD'),
       receivedBy: customer?.name || '',
       remarks: '',
+      warrantyNumber: sale.warrantyNumber || '',
+      warrantyPeriod: WARRANTY_PERIOD_MONTHS,
     })
     setDispatchOpen(true)
   }
@@ -358,8 +362,11 @@ export default function SaleDetails() {
         deliveryDate: formData.deliveryDate,
         receivedBy: formData.receivedBy,
         dispatchRemarks: formData.remarks,
+        warrantyNumber: formData.warrantyNumber,
+        warrantyPeriod: Number(formData.warrantyPeriod) || WARRANTY_PERIOD_MONTHS,
+        warrantyCreatedAt: Date.now(),
       })
-      toast.success('Tuk-tuk dispatched!')
+      toast.success('Tuk-tuk dispatched! Warranty forwarded to spares department.')
       setDispatchOpen(false)
       reload()
     } catch (e) {
@@ -390,6 +397,46 @@ export default function SaleDetails() {
       }
       toast.success('Invoice generated')
       setInvoiceOpen(false)
+      reload()
+    } catch (e) {
+      toast.error(e.message)
+    }
+  }
+
+  // ----- Pre-delivery service -----
+  const [preDeliveryOpen, setPreDeliveryOpen] = useState(false)
+  const preDeliveryForm = useForm()
+
+  const openPreDelivery = () => {
+    const existing = sale.preDeliveryChecklist || {}
+    preDeliveryForm.reset({
+      canvas: existing.canvas || false,
+      doors: existing.doors || false,
+      ntsaYellowLine: existing.ntsaYellowLine || false,
+    })
+    setPreDeliveryOpen(true)
+  }
+
+  const completePreDelivery = async (formData) => {
+    try {
+      const checklist = {}
+      PRE_DELIVERY_CHECKLIST.forEach((item) => {
+        checklist[item.key] = formData[item.key] || false
+      })
+      await saleService.completePreDelivery(id, checklist)
+      toast.success('Pre-delivery service completed')
+      setPreDeliveryOpen(false)
+      reload()
+    } catch (e) {
+      toast.error(e.message)
+    }
+  }
+
+  // ----- Document verification -----
+  const verifyDocuments = async () => {
+    try {
+      await saleService.verifyDocuments(id)
+      toast.success('Documents verified. Ready for NTSA transfer.')
       reload()
     } catch (e) {
       toast.error(e.message)
@@ -480,7 +527,10 @@ export default function SaleDetails() {
         : currentIdx >= flow.indexOf('Payment Confirmed') ? 'done' : 'active',
     },
     { label: 'Unit Assigned', status: currentIdx >= flow.indexOf('Unit Assigned') ? 'done' : currentIdx >= flow.indexOf('Payment Confirmed') || currentIdx >= flow.indexOf('Loan Accepted') ? 'active' : 'pending' },
-    { label: 'NTSA Transfer', status: sale.status === 'NTSA Transfer' ? 'active' : sale.status === 'Dispatched' ? 'done' : currentIdx > flow.indexOf('Unit Assigned') ? 'done' : 'pending' },
+    { label: 'Invoice', status: currentIdx >= flow.indexOf('Invoice Raised') ? 'done' : currentIdx >= flow.indexOf('Unit Assigned') ? 'active' : 'pending' },
+    { label: 'Pre-Delivery', status: currentIdx >= flow.indexOf('Pre-Delivery Service') ? 'done' : currentIdx >= flow.indexOf('Invoice Raised') ? 'active' : 'pending' },
+    { label: 'Doc Verification', status: currentIdx >= flow.indexOf('Document Verification') ? 'done' : currentIdx >= flow.indexOf('Pre-Delivery Service') ? 'active' : 'pending' },
+    { label: 'NTSA Transfer', status: sale.status === 'NTSA Transfer' ? 'active' : sale.status === 'Dispatched' ? 'done' : currentIdx > flow.indexOf('Document Verification') ? 'done' : 'pending' },
     { label: 'Dispatch', status: sale.status === 'Dispatched' ? 'done' : sale.status === 'NTSA Transfer' ? 'active' : 'pending' },
   ]
   return (
@@ -689,28 +739,73 @@ export default function SaleDetails() {
             </div>
           )}
 
-          {/* 4. Unit assigned → NTSA transfer */}
+          {/* 4. Unit assigned → raise invoice */}
           {sale.status === 'Unit Assigned' && canManage && (
             <div className="rounded-xl bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-500">Unit assigned. Transfer ownership at NTSA.</p>
+              <p className="text-sm text-slate-500">Unit assigned. Raise an invoice for the customer.</p>
+              <button className="btn-primary mt-4" onClick={openInvoice}><FiFileText /> Raise Invoice</button>
+            </div>
+          )}
+
+          {/* 5. Invoice raised → pre-delivery service */}
+          {sale.status === 'Invoice Raised' && canManage && (
+            <div className="rounded-xl bg-slate-50 p-6 text-center">
+              <p className="text-sm text-slate-500">Invoice raised. Send the tuk-tuk to the spare parts shop for pre-delivery service.</p>
+              <button className="btn-primary mt-4" onClick={openPreDelivery}><FiTruck /> Start Pre-Delivery Service</button>
+            </div>
+          )}
+
+          {/* 6. Pre-delivery service → document verification */}
+          {sale.status === 'Pre-Delivery Service' && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-slate-100 p-4">
+                <p className="mb-3 text-sm font-medium text-slate-600">Pre-Delivery Checklist</p>
+                <div className="space-y-2">
+                  {PRE_DELIVERY_CHECKLIST.map((item) => {
+                    const done = sale.preDeliveryChecklist?.[item.key]
+                    return (
+                      <div key={item.key} className="flex items-center gap-2 text-sm">
+                        <FiCheckCircle className={done ? 'text-green-500' : 'text-slate-300'} size={16} />
+                        <span className={done ? 'text-slate-700' : 'text-slate-400'}>{item.label}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              {canManage && (
+                <div className="rounded-xl bg-slate-50 p-4 text-center">
+                  <p className="text-sm text-slate-500">Pre-delivery service complete. Verify customer documents next.</p>
+                  <button className="btn-primary mt-3" onClick={verifyDocuments}><FiCheckCircle /> Verify Documents</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 7. Document verification → NTSA transfer */}
+          {sale.status === 'Document Verification' && canManage && (
+            <div className="rounded-xl bg-slate-50 p-6 text-center">
+              <p className="text-sm text-slate-500">Documents verified. Initiate NTSA ownership transfer.</p>
               <button className="btn-primary mt-4" onClick={transferNtsa}><FiFileText /> Record NTSA Transfer</button>
             </div>
           )}
 
-          {/* 5. NTSA transfer → dispatch */}
+          {/* 8. NTSA transfer → dispatch */}
           {sale.status === 'NTSA Transfer' && canManage && (
             <div className="rounded-xl bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-500">Ownership transferred. Dispatch the tuk-tuk to the customer.</p>
+              <p className="text-sm text-slate-500">Ownership transferred. Dispatch the tuk-tuk and raise warranty.</p>
               <button className="btn-primary mt-4" onClick={openDispatch}><FiTruck /> Dispatch</button>
             </div>
           )}
 
-          {/* 6. Dispatched */}
+          {/* 9. Dispatched */}
           {sale.status === 'Dispatched' && (
             <div className="rounded-xl bg-green-50 p-6 text-center">
               <FiCheckCircle size={32} className="mx-auto text-green-500" />
               <p className="mt-2 text-sm text-green-700">Tuk-tuk dispatched. Sale complete!</p>
               {sale.dispatchedAt && <p className="text-xs text-green-600">Dispatched {formatDate(sale.dispatchedAt)}</p>}
+              {sale.warrantyNumber && (
+                <p className="mt-1 text-xs text-green-600">Warranty: {sale.warrantyNumber} ({sale.warrantyPeriod || WARRANTY_PERIOD_MONTHS} months) — forwarded to spares department</p>
+              )}
             </div>
           )}
         </Card>
@@ -833,11 +928,20 @@ export default function SaleDetails() {
       </Modal>
 
       {/* Dispatch Modal */}
-      <Modal open={dispatchOpen} onClose={() => setDispatchOpen(false)} title="Dispatch Tuk-Tuk">
+      <Modal open={dispatchOpen} onClose={() => setDispatchOpen(false)} title="Dispatch Tuk-Tuk" size="lg">
         <form onSubmit={dispatchForm.handleSubmit(doDispatch)} className="space-y-4">
-          <div><label className="label">Delivery Date</label><input type="date" className="input" {...dispatchForm.register('deliveryDate', { required: 'Required' })} /></div>
-          <div><label className="label">Received By</label><input className="input" {...dispatchForm.register('receivedBy', { required: 'Required' })} /></div>
-          <div><label className="label">Remarks</label><textarea rows={3} className="input" {...dispatchForm.register('remarks')} /></div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div><label className="label">Delivery Date</label><input type="date" className="input" {...dispatchForm.register('deliveryDate', { required: 'Required' })} /></div>
+            <div><label className="label">Received By</label><input className="input" {...dispatchForm.register('receivedBy', { required: 'Required' })} /></div>
+          </div>
+          <div><label className="label">Remarks</label><textarea rows={2} className="input" {...dispatchForm.register('remarks')} /></div>
+          <div className="rounded-xl bg-amber-50 p-4">
+            <p className="mb-3 text-sm font-medium text-amber-800">Warranty (forwarded to spares department for future claims)</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div><label className="label">Warranty Number</label><input className="input" {...dispatchForm.register('warrantyNumber', { required: 'Required' })} placeholder="e.g. WR-2026-001" /></div>
+              <div><label className="label">Warranty Period (months)</label><input type="number" className="input" {...dispatchForm.register('warrantyPeriod')} /></div>
+            </div>
+          </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setDispatchOpen(false)}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={dispatchForm.formState.isSubmitting}>{dispatchForm.formState.isSubmitting && <ButtonLoader />} Confirm Dispatch</button>
@@ -867,6 +971,30 @@ export default function SaleDetails() {
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setInvoiceOpen(false)}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={invoiceForm.formState.isSubmitting}>{invoiceForm.formState.isSubmitting && <ButtonLoader />} Save Invoice</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Pre-Delivery Service Modal */}
+      <Modal open={preDeliveryOpen} onClose={() => setPreDeliveryOpen(false)} title="Pre-Delivery Service">
+        <form onSubmit={preDeliveryForm.handleSubmit(completePreDelivery)} className="space-y-4">
+          <p className="text-sm text-slate-500">Confirm the following have been completed at the spare parts shop:</p>
+          <div className="space-y-3">
+            {PRE_DELIVERY_CHECKLIST.map((item) => (
+              <div key={item.key} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3">
+                <input
+                  type="checkbox"
+                  id={item.key}
+                  className="h-5 w-5 rounded border-slate-300 text-primary focus:ring-primary"
+                  {...preDeliveryForm.register(item.key)}
+                />
+                <label htmlFor={item.key} className="text-sm font-medium text-slate-700">{item.label}</label>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" className="btn-outline" onClick={() => setPreDeliveryOpen(false)}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={preDeliveryForm.formState.isSubmitting}>{preDeliveryForm.formState.isSubmitting && <ButtonLoader />} Complete</button>
           </div>
         </form>
       </Modal>
