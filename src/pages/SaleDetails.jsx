@@ -453,8 +453,10 @@ export default function SaleDetails() {
     const rate = sale.vatRate ?? VAT_RATE
     const vat = computeVat(price, rate)
     const total = price + vat
-    const totalConfirmed = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + p.amount, 0)
-    const balance = total - totalConfirmed
+    // Sum all confirmed payments (installments or down payment)
+    const totalConfirmed = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    // Balance = full total (price + vat) minus what has already been paid
+    const balance = Math.max(total - totalConfirmed, 0)
     
     const w = window.open('', '_blank', 'width=800,height=900')
     w.document.write(`
@@ -581,14 +583,14 @@ export default function SaleDetails() {
             </tr>
             <tr>
               <td class="bold">${sale.paymentMethod === 'Installments' ? 'Installments Paid' : 'Downpayment'}</td>
-              <td class="text-right bold">${formatCurrency(totalConfirmed).replace('KSH ', '')}</td>
+              <td class="text-right bold">- ${formatCurrency(totalConfirmed).replace('KSH ', '')}</td>
             </tr>
             <tr>
               <td class="bold">${rate === 0 ? 'Zero Rate (0 %)' : 'VAT (' + (rate * 100) + ' %)'}</td>
               <td class="text-right bold">${formatCurrency(vat).replace('KSH ', '')}</td>
             </tr>
             <tr class="total-row">
-              <td>Total</td>
+              <td>Balance Due</td>
               <td class="text-right">KSH ${formatCurrency(balance).replace('KSH ', '')}</td>
             </tr>
           </table>
@@ -615,6 +617,12 @@ export default function SaleDetails() {
   }
 
   const printDeliveryNote = () => {
+    const price = Number(sale.price || 0)
+    const rate = sale.vatRate ?? VAT_RATE
+    const vat = computeVat(price, rate)
+    const total = price + vat
+    const totalConfirmed = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    const balance = Math.max(total - totalConfirmed, 0)
     const w = window.open('', '_blank', 'width=800,height=900')
     w.document.write(`
       <html><head><title>Delivery Note ${sale.deliveryNoteNumber || deliveryNoteNumber()}</title>
@@ -681,6 +689,18 @@ export default function SaleDetails() {
         <div class="row"><span>Chassis No.:</span><span>${vehicle?.chassisNumber || '-'}</span></div>
         <div class="row"><span>Engine No.:</span><span>${vehicle?.engineNumber || '-'}</span></div>
         <div class="row"><span>Color:</span><span>${vehicle?.color || '-'}</span></div>
+      </div>
+      <div class="box">
+        <div class="row" style="font-weight:bold;font-size:15px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-bottom:8px">
+          <span>Payment Summary</span>
+        </div>
+        <div class="row"><span>Vehicle Price</span><span>${formatCurrency(price)}</span></div>
+        ${vat > 0 ? `<div class="row"><span>VAT (${(rate * 100).toFixed(0)}%)</span><span>${formatCurrency(vat)}</span></div>` : ''}
+        <div class="row"><span>Total Amount</span><span style="font-weight:bold">${formatCurrency(total)}</span></div>
+        <div class="row" style="color:#16a34a"><span>${sale.paymentMethod === 'Installments' ? 'Installments Paid' : 'Amount Paid'}</span><span>- ${formatCurrency(totalConfirmed)}</span></div>
+        <div class="row" style="font-weight:bold;font-size:15px;border-top:2px solid #000;margin-top:6px;padding-top:6px">
+          <span>Balance Due</span><span>${formatCurrency(balance)}</span>
+        </div>
       </div>
       <div class="sign"><div>Received By (Customer)</div><div>Authorised By (DONPAV ELECTRIC LTD)</div></div>
       </body></html>`)
