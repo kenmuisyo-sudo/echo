@@ -580,7 +580,7 @@ export default function SaleDetails() {
               <td class="text-right bold">${formatCurrency(price).replace('KSH ', '')}</td>
             </tr>
             <tr>
-              <td class="bold">Downpayment</td>
+              <td class="bold">${sale.paymentMethod === 'Installments' ? 'Installments Paid' : 'Downpayment'}</td>
               <td class="text-right bold">${formatCurrency(totalConfirmed).replace('KSH ', '')}</td>
             </tr>
             <tr>
