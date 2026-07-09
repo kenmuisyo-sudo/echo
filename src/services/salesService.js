@@ -35,7 +35,7 @@ export const saleService = {
    * Cash → "Payment Pending". Credit → "Loan Requested".
    */
   agreeToProceed: async (saleId, { paymentMethod, price, branch }) => {
-    const status = paymentMethod === 'Cash' ? 'Payment Pending' : 'Loan Requested'
+    const status = paymentMethod === 'Cash' || paymentMethod === 'Installments' ? 'Payment Pending' : 'Loan Requested'
     await updateById(PATH, saleId, {
       paymentMethod,
       price: Number(price) || 0,

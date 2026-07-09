@@ -60,7 +60,7 @@ export const VEHICLE_STATUS = [...VEHICLE_PROCUREMENT_STAGES, ...VEHICLE_SALE_ST
 // A vehicle can be allocated while NTSA is still processing it.
 export const VEHICLE_ASSIGNABLE_STATUS = ['NTSA Booking', 'NTSA Cleared']
 
-export const VEHICLE_MODELS = ['EcoRider Pro', 'CargoMax X1', 'CityCab Deluxe', 'FleetRunner S', 'Hauler HD']
+export const VEHICLE_MODELS = ['EcoRider Pro', 'CargoMax X1', 'CityCab Deluxe', 'FleetRunner S', 'Hauler HD', 'Rhinggo tuktuk', 'Rhinggo bike']
 
 export const VEHICLE_COLORS = ['Red', 'Blue', 'Green', 'Yellow', 'White', 'Black', 'Orange', 'Silver']
 
@@ -105,6 +105,19 @@ export const SALE_FLOW_CREDIT = [
   'Dispatched',
 ]
 
+export const SALE_FLOW_INSTALLMENTS = [
+  'Inquiry',
+  'Agreed',
+  'Payment Pending',
+  'Payment Confirmed',
+  'Unit Assigned',
+  'Invoice Raised',
+  'Pre-Delivery Service',
+  'Document Verification',
+  'NTSA Transfer',
+  'Dispatched',
+]
+
 // Every status a sale can be in at any point (union of both paths + rejected).
 export const SALE_STATUS = [
   'Inquiry',
@@ -126,7 +139,7 @@ export const SALE_STATUS = [
 // Statuses that mark the sale as finished (no further action).
 export const SALE_TERMINAL_STATUSES = ['Dispatched', 'Loan Rejected']
 
-export const PAYMENT_METHODS = ['Cash', 'Credit']
+export const PAYMENT_METHODS = ['Cash', 'Credit', 'Installments']
 
 export const PAYMENT_STATUS = ['Pending', 'Confirmed']
 
@@ -162,6 +175,8 @@ export const CREDIT_DOCUMENT_TYPES = [
   { key: 'id', label: 'National ID' },
   { key: 'kraPin', label: 'KRA PIN Certificate' },
   { key: 'drivingLicense', label: 'Driving License' },
+  { key: 'receiptDownPayment', label: 'Receipt of down payment' },
+  { key: 'proformaInvoice', label: 'Proforma Invoice' },
   { key: 'guarantors', label: "Guarantor's Documents" },
 ]
 
@@ -185,6 +200,10 @@ export const PRE_DELIVERY_CHECKLIST = [
   { key: 'canvas', label: 'Canvas fitted' },
   { key: 'doors', label: 'Doors fitted' },
   { key: 'ntsaYellowLine', label: 'NTSA yellow line painted' },
+  { key: 'seatBelt', label: 'Seat belt' },
+  { key: 'firstAidKit', label: 'First aid kit' },
+  { key: 'reflector', label: 'Reflector' },
+  { key: 'fireExtinguisher', label: 'Fire extinguisher' },
 ]
 
 export const WARRANTY_PERIOD_MONTHS = 6

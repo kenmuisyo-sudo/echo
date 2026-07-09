@@ -5,7 +5,7 @@ const PATH = 'vehicles'
 const SEARCH_FIELDS = ['model', 'color', 'chassisNumber', 'batterySerial', 'motorSerial', 'status']
 
 export const MAX_VEHICLE_IMAGES = 4
-export const MIN_VEHICLE_IMAGES = 1
+export const MIN_VEHICLE_IMAGES = 0
 
 export const inventoryService = {
   create: (data) => create(PATH, { ...data, images: data.images || [], createdAt: Date.now() }),

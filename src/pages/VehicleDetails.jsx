@@ -146,7 +146,7 @@ export default function VehicleDetails() {
               <div className="flex h-72 w-full flex-col items-center justify-center gap-2 text-slate-400">
                 <FiUpload size={32} />
                 <p className="text-sm">No images yet</p>
-                {canManage && (
+                {canManage && MIN_VEHICLE_IMAGES > 0 && (
                   <p className="text-xs">At least {MIN_VEHICLE_IMAGES} image required</p>
                 )}
               </div>
@@ -194,7 +194,7 @@ export default function VehicleDetails() {
 
           {canManage && (
             <p className="mt-2 text-xs text-slate-400">
-              {images.length} of {MAX_VEHICLE_IMAGES} images (min {MIN_VEHICLE_IMAGES})
+              {images.length} of {MAX_VEHICLE_IMAGES} images {MIN_VEHICLE_IMAGES > 0 ? `(min ${MIN_VEHICLE_IMAGES})` : '(optional)'}
             </p>
           )}
         </Card>
@@ -226,6 +226,10 @@ export default function VehicleDetails() {
             <div>
               <p className="text-xs text-slate-400">Motor Serial</p>
               <p className="font-mono text-xs text-slate-600">{vehicle.motorSerial || '-'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Engine Number</p>
+              <p className="font-mono text-xs text-slate-600">{vehicle.engineNumber || '-'}</p>
             </div>
           </div>
         </Card>
@@ -289,6 +293,10 @@ export default function VehicleDetails() {
           <div>
             <label className="label">Motor Serial</label>
             <input className="input" {...register('motorSerial')} />
+          </div>
+          <div>
+            <label className="label">Engine Number</label>
+            <input className="input" {...register('engineNumber')} />
           </div>
         </form>
       </Modal>

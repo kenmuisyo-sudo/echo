@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { FiPlus, FiEdit2, FiTrash2, FiEye, FiPhone, FiMail } from 'react-icons/fi'
 import toast from 'react-hot-toast'
@@ -12,7 +13,7 @@ import EmptyState from '../components/ui/EmptyState'
 import { ButtonLoader } from '../components/ui/Spinner'
 import { useAsyncList } from '../hooks/useAsync'
 import { useAuth } from '../contexts/AuthContext'
-import { customerService, saleService } from '../services'
+import { customerService, saleService, settingsService } from '../services'
 import { CUSTOMER_TYPES } from '../constants'
 import { formatDate } from '../utils/helpers'
 
@@ -23,6 +24,12 @@ export default function Customers() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [deleteId, setDeleteId] = useState(null)
+  const [branches, setBranches] = useState([])
+
+  useEffect(() => {
+    settingsService.getAll().then((s) => setBranches(s.branches || [])).catch(() => {})
+  }, [])
+
   const {
     register,
     handleSubmit,
@@ -42,6 +49,7 @@ export default function Customers() {
       address: '',
       notes: '',
       salesAgent: profile?.name || '',
+      branch: branches.length > 0 ? branches[0] : '',
       autoLead: true,
     })
     setModalOpen(true)
@@ -68,6 +76,7 @@ export default function Customers() {
             customerId,
             salesAgent: data.salesAgent || profile?.name || '',
             salesAgentId: profile.uid,
+            branch: data.branch || '',
           })
           toast.success('Customer registered. Sale lead created.')
           setModalOpen(false)
@@ -250,12 +259,25 @@ export default function Customers() {
               </div>
 
               {watch('autoLead') && (
-                <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
-                  <label className="label">Sales Agent</label>
-                  <input className="input" {...register('salesAgent')} placeholder="Assigned agent" />
-                  <p className="mt-2 text-xs text-slate-400">
-                    A sale will be created with status <b>Inquiry</b>. You can then agree to proceed and capture payment.
-                  </p>
+                <div className="grid grid-cols-1 gap-4 rounded-xl bg-slate-50 p-4 sm:col-span-2 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <p className="text-xs text-slate-500">
+                      A sale will be created with status <b>Inquiry</b>. You can then agree to proceed and capture payment.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">Sales Agent</label>
+                    <input className="input" {...register('salesAgent')} placeholder="Assigned agent" />
+                  </div>
+                  <div>
+                    <label className="label">Branch</label>
+                    <select className="input" {...register('branch')}>
+                      <option value="">Select branch</option>
+                      {branches.map((b) => (
+                        <option key={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
             </>

@@ -120,7 +120,7 @@ export default function SaleDetails() {
   const canManage = can.manageSales(profile?.role)
   const financiers = settings?.financiers || []
   const branches = settings?.branches || []
-  const isCash = sale.paymentMethod === 'Cash'
+  const isCash = sale.paymentMethod === 'Cash' || sale.paymentMethod === 'Installments'
   const isCredit = sale.paymentMethod === 'Credit'
   const paymentConfirmed = payments.some((p) => p.confirmed)
   const creditDocs = credit?.documents || {}
@@ -194,8 +194,14 @@ export default function SaleDetails() {
   const confirmPayment = async (payment) => {
     try {
       await paymentService.confirm(payment.id)
-      await saleService.confirmCashPayment(id)
-      toast.success('Payment confirmed. Ready to assign a unit.')
+      const updatedPayments = payments.map(p => p.id === payment.id ? { ...p, confirmed: true } : p)
+      const totalConfirmed = updatedPayments.filter(p => p.confirmed).reduce((sum, p) => sum + p.amount, 0)
+      if (isCash && totalConfirmed >= sale.price) {
+        await saleService.confirmCashPayment(id)
+        toast.success('Full payment confirmed. Ready to assign a unit.')
+      } else {
+        toast.success(`Payment confirmed. Paid: ${formatCurrency(totalConfirmed)}`)
+      }
       reload()
     } catch (e) {
       toast.error(e.message)
@@ -462,12 +468,16 @@ export default function SaleDetails() {
         .grand{font-weight:bold;font-size:16px;border-top:2px solid #0B6E4F;padding-top:8px;margin-top:8px}
       </style></head><body>
       <div class="head">
-        <div><h1>Tuk-Tuk e-Mobility</h1><p class="muted">${sale.branch || '-'} Branch</p></div>
+        <div>
+          <img src="https://placehold.co/150x50/0B6E4F/FFF?text=Letterhead" alt="Company Logo" style="max-height:50px;margin-bottom:10px" />
+          <h1>Tuk-Tuk e-Mobility</h1>
+          <p class="muted">${sale.branch || '-'} Branch</p>
+        </div>
         <div style="text-align:right"><p style="font-size:18px;font-weight:bold">INVOICE</p><p class="muted">${sale.invoiceNumber || '-'}</p><p class="muted">Date: ${sale.invoicedAt ? formatDate(sale.invoicedAt) : formatDate(Date.now())}</p></div>
       </div>
       <div style="margin-bottom:16px"><p class="muted">Bill To</p><p style="font-weight:bold">${customer?.name || '-'}</p><p class="muted">${customer?.phone || ''}</p></div>
-      <table><thead><tr><th>Description</th><th>Reg. No.</th><th>Chassis No.</th><th style="text-align:right">Amount</th></tr></thead>
-      <tbody><tr><td>${vehicle?.model || '-'} (${vehicle?.color || ''})</td><td>${sale.registrationNo || vehicle?.registrationNo || '-'}</td><td>${vehicle?.chassisNumber || '-'}</td><td style="text-align:right">${formatCurrency(price)}</td></tr></tbody></table>
+      <table><thead><tr><th>Description</th><th>Reg. No.</th><th>Chassis No.</th><th>Engine No.</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody><tr><td>${vehicle?.model || '-'} (${vehicle?.color || ''})</td><td>${sale.registrationNo || vehicle?.registrationNo || '-'}</td><td>${vehicle?.chassisNumber || '-'}</td><td>${vehicle?.engineNumber || '-'}</td><td style="text-align:right">${formatCurrency(price)}</td></tr></tbody></table>
       <div style="max-width:300px;margin-left:auto;margin-top:16px">
         <div class="tot"><span>Subtotal</span><span>${formatCurrency(price)}</span></div>
         <div class="tot"><span>VAT (${(rate * 100).toFixed(0)}%)</span><span>${formatCurrency(vat)}</span></div>
@@ -640,11 +650,13 @@ export default function SaleDetails() {
             </div>
           )}
 
-          {/* 2. Cash: payment pending → record & confirm */}
-          {isCash && sale.status === 'Payment Pending' && (
-            <div>
+          {/* Payments for Cash, Installments, or Credit Deposit */}
+          {(isCash || isCredit) && sale.status !== 'Inquiry' && (
+            <div className="mb-6">
               <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-medium text-slate-600">Cash Payment</p>
+                <p className="text-sm font-medium text-slate-600">
+                  {isCredit ? 'Down Payment / Deposit' : sale.paymentMethod + ' Payment'}
+                </p>
                 {canManage && <button className="btn-primary" onClick={openPayment}><FiDollarSign /> Record Payment</button>}
               </div>
               {payments.length === 0 ? (
@@ -788,8 +800,11 @@ export default function SaleDetails() {
           {/* 7. Document verification → NTSA transfer */}
           {sale.status === 'Document Verification' && canManage && (
             <div className="rounded-xl bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-500">Documents verified. Initiate NTSA ownership transfer.</p>
-              <button className="btn-primary mt-4" onClick={transferNtsa}><FiFileText /> Record NTSA Transfer</button>
+              <p className="text-sm text-slate-500">Documents verified. Initiate NTSA ownership transfer or dispatch unit directly.</p>
+              <div className="mt-4 flex justify-center gap-4">
+                <button className="btn-primary" onClick={transferNtsa}><FiFileText /> Record NTSA Transfer</button>
+                <button className="btn-outline" onClick={openDispatch}><FiTruck /> Dispatch Unit</button>
+              </div>
             </div>
           )}
 
@@ -963,7 +978,10 @@ export default function SaleDetails() {
       <Modal open={invoiceOpen} onClose={() => setInvoiceOpen(false)} title="Generate Invoice">
         <form onSubmit={invoiceForm.handleSubmit(saveInvoice)} className="space-y-4">
           <div><label className="label">Customer Name</label><input className="input" value={customer?.name || ''} disabled /></div>
-          <div><label className="label">Chassis Number</label><input className="input" value={vehicle?.chassisNumber || ''} disabled /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Chassis Number</label><input className="input" value={vehicle?.chassisNumber || ''} disabled /></div>
+            <div><label className="label">Engine Number</label><input className="input" value={vehicle?.engineNumber || ''} disabled /></div>
+          </div>
           <div><label className="label">Registration No.</label><input className="input" {...invoiceForm.register('registrationNo')} placeholder="e.g. KMEA 123A" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">Total Amount (KES)</label><input className="input" value={formatCurrency(sale.price)} disabled /></div>

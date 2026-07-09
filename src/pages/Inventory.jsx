@@ -40,7 +40,7 @@ export default function Inventory() {
 
   const openCreate = () => {
     setEditing(null)
-    reset({ model: '', price: '', color: '', batterySerial: '', motorSerial: '', chassisNumber: '', registrationNo: '', status: 'Ordered', dateReceivedFromFactory: '', ntsaBookingDate: '' })
+    reset({ model: '', price: '', color: '', batterySerial: '', motorSerial: '', engineNumber: '', chassisNumber: '', registrationNo: '', status: 'Ordered', dateReceivedFromFactory: '', ntsaBookingDate: '' })
     setPendingFiles([])
     setPendingPreviews([])
     setModalOpen(true)
@@ -353,6 +353,10 @@ export default function Inventory() {
             <input className="input" {...register('motorSerial')} />
           </div>
           <div>
+            <label className="label">Engine Number</label>
+            <input className="input" {...register('engineNumber')} />
+          </div>
+          <div>
             <label className="label">Date Received From Factory</label>
             <input type="date" className="input" {...register('dateReceivedFromFactory')} />
           </div>
@@ -364,7 +368,7 @@ export default function Inventory() {
           {/* Image Upload */}
           <div className="sm:col-span-2">
             <label className="label">
-              Vehicle Images ({allPreviews.length}/{MAX_VEHICLE_IMAGES}) — min {MIN_VEHICLE_IMAGES}
+              Vehicle Images ({allPreviews.length}/{MAX_VEHICLE_IMAGES}){MIN_VEHICLE_IMAGES > 0 ? ` — min ${MIN_VEHICLE_IMAGES}` : ' (Optional)'}
             </label>
             <div className="flex flex-wrap gap-2">
               {allPreviews.map((src, i) => {
@@ -398,7 +402,7 @@ export default function Inventory() {
                 </label>
               )}
             </div>
-            {!editing && (
+            {!editing && MIN_VEHICLE_IMAGES > 0 && (
               <p className="mt-1 text-xs text-slate-400">
                 Upload {MIN_VEHICLE_IMAGES}-{MAX_VEHICLE_IMAGES} images of the vehicle.
               </p>
