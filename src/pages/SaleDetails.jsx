@@ -619,19 +619,57 @@ export default function SaleDetails() {
     w.document.write(`
       <html><head><title>Delivery Note ${sale.deliveryNoteNumber || deliveryNoteNumber()}</title>
       <style>
-        body{font-family:Arial,sans-serif;padding:30px;color:#0f172a}
-        h1{color:#0B6E4F;margin:0}
-        .head{display:flex;justify-content:space-between;border-bottom:2px solid #0B6E4F;padding-bottom:12px;margin-bottom:16px}
-        .muted{color:#64748b;font-size:13px}
+        @page { margin: 10mm; }
+        body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 14px; color: #000; padding: 20px; }
+        .flex { display: flex; }
+        .justify-between { justify-content: space-between; }
+        .items-center { align-items: center; }
+        .text-right { text-align: right; }
+        
+        .header { display: flex; align-items: center; margin-bottom: 5px; }
+        .logo-box { width: 180px; height: 140px; background-color: #5cb85c; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; margin-right: 20px; }
+        .logo-d { font-size: 60px; font-weight: bold; color: #ff3333; line-height: 1; margin-bottom: 5px; }
+        .logo-text { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
+        .logo-sub { font-size: 11px; font-weight: bold; }
+        
+        .company-info { flex: 1; text-align: center; color: #00B050; }
+        .company-info h1 { font-size: 28px; margin: 0 0 10px 0; font-weight: bold; }
+        .company-info p { margin: 5px 0; font-size: 16px; font-weight: bold; }
+        .company-info .email { font-style: italic; text-decoration: underline; }
+        
+        .green-line { height: 4px; background-color: #00B050; margin-bottom: 20px; }
+        
+        .bold { font-weight: bold; }
         .row{display:flex;justify-content:space-between;margin:6px 0;font-size:14px}
         .box{border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:12px 0}
         .sign{display:flex;justify-content:space-between;margin-top:60px;font-size:13px}
         .sign div{border-top:1px solid #475569;padding-top:4px;width:40%}
       </style></head><body>
-      <div class="head">
-        <div><h1>Tuk-Tuk e-Mobility</h1><p class="muted">${sale.branch || '-'} Branch</p></div>
-        <div style="text-align:right"><p style="font-size:18px;font-weight:bold">DELIVERY NOTE</p><p class="muted">${sale.deliveryNoteNumber || deliveryNoteNumber()}</p><p class="muted">Date: ${formatDate(Date.now())}</p></div>
+      
+      <div class="header">
+        <div class="logo-box">
+          <div class="logo-d">D</div>
+          <div class="logo-text">DONPAV</div>
+          <div class="logo-sub">ELECTRIC LTD</div>
+        </div>
+        <div class="company-info">
+          <h1>DONPAV ELECTRIC LIMITED</h1>
+          <p>Authorised Dealers of Rhinggo electric tuk tuk and motorbikes</p>
+          <p>Location: Kisauni-Majengo-Diani-Kisumu</p>
+          <p>Tel: 0721 904 506 – 0720 320 233 – 0719 403 028</p>
+          <p class="email">Email: donrhinggo@gmail.com</p>
+        </div>
       </div>
+      <div class="green-line"></div>
+      
+      <div class="flex justify-between" style="margin-bottom: 40px;">
+        <div style="font-size:18px;font-weight:bold">DELIVERY NOTE</div>
+        <div class="text-right" style="color:#64748b">
+          <p>${sale.deliveryNoteNumber || deliveryNoteNumber()}</p>
+          <p>Date: ${formatDate(Date.now())}</p>
+        </div>
+      </div>
+      
       <div class="box">
         <div class="row"><span>Delivered To:</span><b>${customer?.name || '-'}</b></div>
         <div class="row"><span>Phone:</span><span>${customer?.phone || '-'}</span></div>
@@ -641,9 +679,10 @@ export default function SaleDetails() {
         <div class="row"><span>Vehicle Model:</span><b>${vehicle?.model || '-'}</b></div>
         <div class="row"><span>Registration No.:</span><span>${sale.registrationNo || vehicle?.registrationNo || '-'}</span></div>
         <div class="row"><span>Chassis No.:</span><span>${vehicle?.chassisNumber || '-'}</span></div>
+        <div class="row"><span>Engine No.:</span><span>${vehicle?.engineNumber || '-'}</span></div>
         <div class="row"><span>Color:</span><span>${vehicle?.color || '-'}</span></div>
       </div>
-      <div class="sign"><div>Received By (Customer)</div><div>Authorised By (Tuk-Tuk e-Mobility)</div></div>
+      <div class="sign"><div>Received By (Customer)</div><div>Authorised By (DONPAV ELECTRIC LTD)</div></div>
       </body></html>`)
     w.document.close()
     w.print()
