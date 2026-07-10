@@ -33,6 +33,7 @@ import {
   creditService,
   settingsService,
   uploadMany,
+  accessoryService,
 } from '../services'
 import {
   PAYMENT_METHODS,
@@ -61,13 +62,14 @@ export default function SaleDetails() {
   const { id } = useParams()
   const { profile } = useAuth()
   const { data, loading, reload } = useAsync(async () => {
-    const [sale, customers, vehicles, payments, credit, settings] = await Promise.all([
+    const [sale, customers, vehicles, payments, credit, settings, accessories] = await Promise.all([
       saleService.getById(id),
       customerService.getAll(),
       inventoryService.getAll(),
       paymentService.getBySale(id),
       creditService.getBySale(id),
       settingsService.getAll(),
+      accessoryService.getAll(),
     ])
     return {
       sale,
@@ -80,6 +82,7 @@ export default function SaleDetails() {
       payments,
       credit,
       settings,
+      accessories,
     }
   }, [id])
 
@@ -127,8 +130,12 @@ export default function SaleDetails() {
   const isCredit = sale.paymentMethod === 'Credit'
   const paymentConfirmed = payments.some((p) => p.confirmed)
   const totalConfirmed = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + Number(p.amount || 0), 0)
-  const vatAmount = computeVat(sale.price, sale.vatRate ?? VAT_RATE)
-  const totalRequired = Number(sale.price || 0) + vatAmount
+  const unitPrice = Number(sale.price || 0)
+  const qty = Number(sale.units || 1)
+  const basePrice = unitPrice * qty
+  const accessoriesPrice = Number(sale.accessoriesTotal || 0)
+  const vatAmount = computeVat(basePrice + accessoriesPrice, sale.vatRate ?? VAT_RATE)
+  const totalRequired = basePrice + accessoriesPrice + vatAmount
   const isFullyPaid = isCredit
     ? (credit?.status === 'Loan Accepted' && paymentConfirmed)
     : (totalConfirmed >= totalRequired)
@@ -140,6 +147,7 @@ export default function SaleDetails() {
       paymentMethod: sale.paymentMethod || 'Cash',
       price: sale.price > 0 ? sale.price : '',
       branch: sale.branch || branches[0] || '',
+      units: sale.units || 1,
     })
     setAgreeOpen(true)
   }
@@ -150,6 +158,7 @@ export default function SaleDetails() {
         paymentMethod: formData.paymentMethod,
         price: formData.price,
         branch: formData.branch,
+        units: formData.units || 1,
       })
       // If credit, create the credit application record so documents can be uploaded.
       if (formData.paymentMethod === 'Credit' && !credit) {
@@ -181,7 +190,8 @@ export default function SaleDetails() {
 
   const recordPayment = async (formData) => {
     try {
-      const rcp = receiptNumber()
+      const serial = await settingsService.getNextSerial('receipt')
+      const rcp = `RCP-${serial}`
       await paymentService.create({
         saleId: id,
         amount: Number(formData.amount),
@@ -204,8 +214,8 @@ export default function SaleDetails() {
     try {
       await paymentService.confirm(payment.id)
       const updatedPayments = payments.map(p => p.id === payment.id ? { ...p, confirmed: true } : p)
-      const totalConfirmed = updatedPayments.filter(p => p.confirmed).reduce((sum, p) => sum + p.amount, 0)
-      if (totalConfirmed >= sale.price) {
+      const newTotalConfirmed = updatedPayments.filter(p => p.confirmed).reduce((sum, p) => sum + p.amount, 0)
+      if (newTotalConfirmed >= totalRequired) {
         await saleService.confirmCashPayment(id)
         if (sale.vehicleId) {
           const vehicle = await inventoryService.getById(sale.vehicleId)
@@ -213,7 +223,8 @@ export default function SaleDetails() {
         }
         toast.success('Full payment confirmed. Unit marked as Sold.')
       } else {
-        toast.success(`Payment confirmed. Paid: ${formatCurrency(totalConfirmed)}`)
+        const remaining = formatCurrency(totalRequired - newTotalConfirmed)
+        toast.success(`Payment confirmed. ${remaining} remaining.`)
       }
       reload()
     } catch (e) {
@@ -222,10 +233,14 @@ export default function SaleDetails() {
   }
 
   const printReceipt = (payment) => {
-    const price = Number(sale.price || 0)
+    const unitPrice = Number(sale.price || 0)
+    const qty = Number(sale.units || 1)
+    const basePrice = unitPrice * qty
+    const accessoriesPrice = Number(sale.accessoriesTotal || 0)
     const rate = sale.vatRate ?? VAT_RATE
-    const vat = computeVat(price, rate)
-    const grandTotal = price + vat
+    const vat = computeVat(basePrice + accessoriesPrice, rate)
+    const grandTotal = basePrice + accessoriesPrice + vat
+    
     // Build rows for all confirmed payments up to and including this one
     const confirmedPayments = payments.filter((p) => p.confirmed)
     const cumulativePaid = confirmedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
@@ -252,10 +267,7 @@ export default function SaleDetails() {
         @page { margin: 10mm; }
         body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 14px; color: #000; padding: 20px; }
         .header { display: flex; align-items: center; margin-bottom: 5px; }
-        .logo-box { width: 180px; height: 140px; background-color: #5cb85c; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; margin-right: 20px; }
-        .logo-d { font-size: 60px; font-weight: bold; color: #ff3333; line-height: 1; margin-bottom: 5px; }
-        .logo-text { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
-        .logo-sub { font-size: 11px; font-weight: bold; }
+        .logo-box { display: flex; align-items: center; margin-right: 20px; }
         .company-info { flex: 1; text-align: center; color: #00B050; }
         .company-info h1 { font-size: 28px; margin: 0 0 10px 0; font-weight: bold; }
         .company-info p { margin: 5px 0; font-size: 16px; font-weight: bold; }
@@ -273,14 +285,13 @@ export default function SaleDetails() {
 
       <div class="header">
         <div class="logo-box">
-          <div class="logo-d">D</div>
-          <div class="logo-text">DONPAV</div>
-          <div class="logo-sub">ELECTRIC LTD</div>
+          <img src="/logo.jpeg" style="max-height:85px; max-width:180px; object-fit:contain;" />
         </div>
         <div class="company-info">
           <h1>DONPAV ELECTRIC LIMITED</h1>
           <p>Authorised Dealers of Rhinggo electric tuk tuk and motorbikes</p>
-          <p>Location: Kisauni-Majengo-Diani-Kisumu</p>
+          <p>Location: Bungoma, Kenya | Kisauni-Majengo-Diani-Kisumu</p>
+          <p style="margin: 3px 0;">Website: www.donpavelectric.co.ke</p>
           <p>Tel: 0721 904 506 – 0720 320 233 – 0719 403 028</p>
           <p class="email">Email: donrhinggo@gmail.com</p>
         </div>
@@ -298,7 +309,7 @@ export default function SaleDetails() {
       <div class="box">
         <div class="row"><span class="bold">Customer:</span><span>${customer?.name || '-'}</span></div>
         <div class="row"><span class="bold">ID No:</span><span>${customer?.idNumber || '-'}</span></div>
-        <div class="row"><span class="bold">Vehicle:</span><span>${vehicle?.model || '-'} (${vehicle?.color || ''})</span></div>
+        <div class="row"><span class="bold">Vehicle:</span><span>${vehicle?.model || '-'} (${qty} unit${qty !== 1 ? 's' : ''})</span></div>
         <div class="row"><span class="bold">Chassis No:</span><span>${vehicle?.chassisNumber || '-'}</span></div>
         <div class="row"><span class="bold">Payment Method:</span><span>${sale.paymentMethod}</span></div>
       </div>
@@ -322,8 +333,10 @@ export default function SaleDetails() {
         </tbody>
       </table>
 
-      <div style="max-width:400px;margin-left:auto;margin-top:20px">
-        <div class="row"><span>Vehicle Price</span><span>${formatCurrency(price)}</span></div>
+
+      <div style="max-width:420px;margin-left:auto;margin-top:20px">
+        <div class="row"><span>Vehicle (${qty} × ${formatCurrency(unitPrice)})</span><span>${formatCurrency(basePrice)}</span></div>
+        ${accessoriesPrice > 0 ? `<div class="row"><span>Accessories</span><span>${formatCurrency(accessoriesPrice)}</span></div>` : ''}
         ${vat > 0 ? `<div class="row"><span>VAT (${(rate * 100).toFixed(0)}%)</span><span>${formatCurrency(vat)}</span></div>` : ''}
         <div class="row bold"><span>Grand Total</span><span>${formatCurrency(grandTotal)}</span></div>
         <div class="row" style="color:#16a34a"><span>Total Paid</span><span>- ${formatCurrency(allPaidIncThisOne)}</span></div>
@@ -450,7 +463,7 @@ export default function SaleDetails() {
       const totalPaid = payments.filter(p => p.confirmed).reduce((sum, p) => sum + p.amount, 0)
       const prevStatus = isCredit
         ? (credit?.status === 'Loan Accepted' ? 'Loan Accepted' : (credit?.status || 'Loan Requested'))
-        : (totalPaid >= sale.price ? 'Payment Confirmed' : 'Payment Pending')
+        : (totalPaid >= totalRequired ? 'Payment Confirmed' : 'Payment Pending')
       await saleService.unassignUnit(id, sale.vehicleId, prevStatus)
       toast.success('Unit unassigned from sale')
       reload()
@@ -531,12 +544,18 @@ export default function SaleDetails() {
 
   // ----- Pre-delivery service -----
   const openPreDelivery = () => {
-    const existing = sale.preDeliveryChecklist || {}
-    preDeliveryForm.reset({
-      canvas: existing.canvas || false,
-      doors: existing.doors || false,
-      ntsaYellowLine: existing.ntsaYellowLine || false,
+    const existingChecklist = sale.preDeliveryChecklist || {}
+    const existingAccs = sale.accessories || {}
+    const resetObj = {}
+    PRE_DELIVERY_CHECKLIST.forEach((item) => {
+      resetObj[item.key] = existingChecklist[item.key] || false
     })
+    const accList = data?.accessories || []
+    accList.forEach((acc) => {
+      resetObj[`qty_${acc.id}`] = existingAccs[acc.id]?.qty || 0
+      resetObj[`inc_${acc.id}`] = existingAccs[acc.id]?.included || false
+    })
+    preDeliveryForm.reset(resetObj)
     setPreDeliveryOpen(true)
   }
 
@@ -546,8 +565,48 @@ export default function SaleDetails() {
       PRE_DELIVERY_CHECKLIST.forEach((item) => {
         checklist[item.key] = formData[item.key] || false
       })
-      await saleService.completePreDelivery(id, checklist)
-      toast.success('Pre-delivery service completed')
+      
+      const accList = data?.accessories || []
+      const selectedAccessories = {}
+      let accessoriesTotal = 0
+      
+      for (const acc of accList) {
+        const qty = Number(formData[`qty_${acc.id}`] || 0)
+        const included = formData[`inc_${acc.id}`] || false
+        if (qty > 0) {
+          const prevQty = sale.accessories?.[acc.id]?.qty || 0
+          if (qty > acc.stock && qty !== prevQty) {
+            throw new Error(`Insufficient stock for ${acc.name}. Available: ${acc.stock}`)
+          }
+          selectedAccessories[acc.id] = {
+            id: acc.id,
+            name: acc.name,
+            price: acc.price,
+            qty,
+            included
+          }
+          if (included) {
+            accessoriesTotal += acc.price * qty
+          }
+          
+          const diff = qty - prevQty
+          if (diff !== 0) {
+            await accessoryService.update(acc.id, { stock: Math.max(acc.stock - diff, 0) })
+          }
+        } else {
+          const prevQty = sale.accessories?.[acc.id]?.qty || 0
+          if (prevQty > 0) {
+            await accessoryService.update(acc.id, { stock: acc.stock + prevQty })
+          }
+        }
+      }
+      
+      await saleService.completePreDelivery(id, checklist, {
+        accessories: selectedAccessories,
+        accessoriesTotal
+      })
+      
+      toast.success('Pre-delivery services and accessories updated')
       setPreDeliveryOpen(false)
       reload()
     } catch (e) {
@@ -567,14 +626,41 @@ export default function SaleDetails() {
   }
 
   const printInvoice = () => {
-    const price = Number(sale.price || 0)
+    const unitPrice = Number(sale.price || 0)
+    const qty = Number(sale.units || 1)
+    const basePrice = unitPrice * qty
+    const accessoriesPrice = Number(sale.accessoriesTotal || 0)
     const rate = sale.vatRate ?? VAT_RATE
-    const vat = computeVat(price, rate)
-    const total = price + vat
+    const subtotal = basePrice + accessoriesPrice
+    const vat = computeVat(subtotal, rate)
+    const total = subtotal + vat
+    
     // Sum all confirmed payments (installments or down payment)
     const totalConfirmed = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + Number(p.amount || 0), 0)
     // Balance = full total (price + vat) minus what has already been paid
     const balance = Math.max(total - totalConfirmed, 0)
+
+    // Build accessory rows
+    let accessoryRowsHtml = ''
+    const saleAccs = Object.values(sale.accessories || {})
+    let itemIdx = 2
+    saleAccs.forEach((acc) => {
+      if (acc.included && acc.qty > 0) {
+        accessoryRowsHtml += `
+          <tr>
+            <td class="text-center">${itemIdx++}</td>
+            <td class="item-details">
+              <div class="item-title">${acc.name}</div>
+              <p>Optional pre-delivery accessory</p>
+            </td>
+            <td class="text-center">${acc.qty}</td>
+            <td class="text-right">${formatCurrency(acc.price).replace('KSH ', '')}</td>
+            <td class="text-center">${(rate * 100).toFixed(0)}%</td>
+            <td class="text-right">${formatCurrency(acc.price * acc.qty).replace('KSH ', '')}</td>
+          </tr>
+        `
+      }
+    })
     
     const w = window.open('', '_blank', 'width=800,height=900')
     w.document.write(`
@@ -587,11 +673,7 @@ export default function SaleDetails() {
         .items-center { align-items: center; }
         
         .header { display: flex; align-items: center; margin-bottom: 5px; }
-        .logo-box { width: 180px; height: 140px; background-color: #5cb85c; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; margin-right: 20px; }
-        .logo-d { font-size: 60px; font-weight: bold; color: #ff3333; line-height: 1; margin-bottom: 5px; }
-        .logo-text { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
-        .logo-sub { font-size: 11px; font-weight: bold; }
-        
+        .logo-box { display: flex; align-items: center; margin-right: 20px; }
         .company-info { flex: 1; text-align: center; color: #00B050; }
         .company-info h1 { font-size: 28px; margin: 0 0 10px 0; font-weight: bold; }
         .company-info p { margin: 5px 0; font-size: 16px; font-weight: bold; }
@@ -627,14 +709,13 @@ export default function SaleDetails() {
       
       <div class="header">
         <div class="logo-box">
-          <div class="logo-d">D</div>
-          <div class="logo-text">DONPAV</div>
-          <div class="logo-sub">ELECTRIC LTD</div>
+          <img src="/logo.jpeg" style="max-height:85px; max-width:180px; object-fit:contain;" />
         </div>
         <div class="company-info">
           <h1>DONPAV ELECTRIC LIMITED</h1>
           <p>Authorised Dealers of Rhinggo electric tuk tuk and motorbikes</p>
-          <p>Location: Kisauni-Majengo-Diani-Kisumu</p>
+          <p>Location: Bungoma, Kenya | Kisauni-Majengo-Diani-Kisumu</p>
+          <p style="margin: 3px 0;">Website: www.donpavelectric.co.ke</p>
           <p>Tel: 0721 904 506 – 0720 320 233 – 0719 403 028</p>
           <p class="email">Email: donrhinggo@gmail.com</p>
         </div>
@@ -642,7 +723,7 @@ export default function SaleDetails() {
       <div class="green-line"></div>
       
       <div class="flex justify-between" style="margin-bottom: 40px;">
-        <div>INVOICE</div>
+        <div style="font-size: 18px; font-weight: bold;">INVOICE</div>
         <div class="bold">KRA:P052482064D</div>
       </div>
       
@@ -681,11 +762,12 @@ export default function SaleDetails() {
               <p>Chassis number; ${vehicle?.chassisNumber || '-'}</p>
               <p>Engine number; ${vehicle?.engineNumber || '-'}</p>
             </td>
-            <td class="text-center">1</td>
-            <td class="text-right">${formatCurrency(price).replace('KSH ', '')}</td>
-            <td class="text-center">${(rate * 100).toFixed(2)}</td>
-            <td class="text-right">${formatCurrency(price).replace('KSH ', '')}</td>
+            <td class="text-center">${qty}</td>
+            <td class="text-right">${formatCurrency(unitPrice).replace('KSH ', '')}</td>
+            <td class="text-center">${(rate * 100).toFixed(0)}%</td>
+            <td class="text-right">${formatCurrency(basePrice).replace('KSH ', '')}</td>
           </tr>
+          ${accessoryRowsHtml}
         </tbody>
       </table>
       
@@ -697,7 +779,7 @@ export default function SaleDetails() {
           <table class="summary-table">
             <tr>
               <td class="bold">Sub total</td>
-              <td class="text-right bold">${formatCurrency(price).replace('KSH ', '')}</td>
+              <td class="text-right bold">${formatCurrency(subtotal).replace('KSH ', '')}</td>
             </tr>
             <tr>
               <td class="bold">${sale.paymentMethod === 'Installments' ? 'Installments Paid' : 'Downpayment'}</td>
@@ -735,12 +817,53 @@ export default function SaleDetails() {
   }
 
   const printDeliveryNote = () => {
-    const price = Number(sale.price || 0)
+    const unitPrice = Number(sale.price || 0)
+    const qty = Number(sale.units || 1)
+    const basePrice = unitPrice * qty
+    const accessoriesPrice = Number(sale.accessoriesTotal || 0)
     const rate = sale.vatRate ?? VAT_RATE
-    const vat = computeVat(price, rate)
-    const total = price + vat
+    const subtotal = basePrice + accessoriesPrice
+    const vat = computeVat(subtotal, rate)
+    const total = subtotal + vat
     const totalConfirmed = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + Number(p.amount || 0), 0)
     const balance = Math.max(total - totalConfirmed, 0)
+    const ntsaClearance = sale.status === 'Dispatched'
+      ? (sale.ntsaStatus || 'Pending')
+      : (sale.status === 'NTSA Transfer' ? 'In Process' : 'Pending')
+
+    // Build accessories delivery table rows
+    const dnAccList = Object.values(sale.accessories || {}).filter((a) => a.qty > 0)
+    const accessoryDeliveryRows = dnAccList.map((acc, i) => `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">${i + 1}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;font-weight:bold">${acc.name}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">${acc.qty}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right">${formatCurrency(acc.price)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">${acc.included ? 'Billed' : 'Complimentary'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right">${formatCurrency(acc.included ? acc.price * acc.qty : 0)}</td>
+      </tr>
+    `).join('')
+    const accessorySectionHtml = dnAccList.length > 0 ? `
+      <div class="box">
+        <div class="row" style="font-weight:bold;font-size:15px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-bottom:8px">
+          <span>Items Included in Delivery</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#000;color:#fff">
+              <th style="padding:6px 8px;text-align:left">#</th>
+              <th style="padding:6px 8px;text-align:left">Item</th>
+              <th style="padding:6px 8px;text-align:center">Qty</th>
+              <th style="padding:6px 8px;text-align:right">Unit Price</th>
+              <th style="padding:6px 8px;text-align:center">Billing</th>
+              <th style="padding:6px 8px;text-align:right">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${accessoryDeliveryRows}</tbody>
+        </table>
+      </div>
+    ` : ''
+
     const w = window.open('', '_blank', 'width=800,height=900')
     w.document.write(`
       <html><head><title>Delivery Note ${sale.deliveryNoteNumber || deliveryNoteNumber()}</title>
@@ -753,11 +876,7 @@ export default function SaleDetails() {
         .text-right { text-align: right; }
         
         .header { display: flex; align-items: center; margin-bottom: 5px; }
-        .logo-box { width: 180px; height: 140px; background-color: #5cb85c; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; margin-right: 20px; }
-        .logo-d { font-size: 60px; font-weight: bold; color: #ff3333; line-height: 1; margin-bottom: 5px; }
-        .logo-text { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
-        .logo-sub { font-size: 11px; font-weight: bold; }
-        
+        .logo-box { display: flex; align-items: center; margin-right: 20px; }
         .company-info { flex: 1; text-align: center; color: #00B050; }
         .company-info h1 { font-size: 28px; margin: 0 0 10px 0; font-weight: bold; }
         .company-info p { margin: 5px 0; font-size: 16px; font-weight: bold; }
@@ -769,19 +888,18 @@ export default function SaleDetails() {
         .row{display:flex;justify-content:space-between;margin:6px 0;font-size:14px}
         .box{border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:12px 0}
         .sign{display:flex;justify-content:space-between;margin-top:60px;font-size:13px}
-        .sign div{border-top:1px solid #475569;padding-top:4px;width:40%}
+        .sign div{border-top:1px solid #475569;padding-top:4px;width:30%}
       </style></head><body>
       
       <div class="header">
         <div class="logo-box">
-          <div class="logo-d">D</div>
-          <div class="logo-text">DONPAV</div>
-          <div class="logo-sub">ELECTRIC LTD</div>
+          <img src="/logo.jpeg" style="max-height:85px; max-width:180px; object-fit:contain;" />
         </div>
         <div class="company-info">
           <h1>DONPAV ELECTRIC LIMITED</h1>
           <p>Authorised Dealers of Rhinggo electric tuk tuk and motorbikes</p>
-          <p>Location: Kisauni-Majengo-Diani-Kisumu</p>
+          <p>Location: Bungoma, Kenya | Kisauni-Majengo-Diani-Kisumu</p>
+          <p style="margin: 3px 0;">Website: www.donpavelectric.co.ke</p>
           <p>Tel: 0721 904 506 – 0720 320 233 – 0719 403 028</p>
           <p class="email">Email: donrhinggo@gmail.com</p>
         </div>
@@ -802,17 +920,20 @@ export default function SaleDetails() {
         <div class="row"><span>ID Number:</span><span>${customer?.idNumber || '-'}</span></div>
       </div>
       <div class="box">
-        <div class="row"><span>Vehicle Model:</span><b>${vehicle?.model || '-'}</b></div>
+        <div class="row"><span>Vehicle Model:</span><b>${vehicle?.model || '-'} (${qty} unit${qty !== 1 ? 's' : ''})</b></div>
         <div class="row"><span>Registration No.:</span><span>${sale.registrationNo || vehicle?.registrationNo || '-'}</span></div>
         <div class="row"><span>Chassis No.:</span><span>${vehicle?.chassisNumber || '-'}</span></div>
         <div class="row"><span>Engine No.:</span><span>${vehicle?.engineNumber || '-'}</span></div>
         <div class="row"><span>Color:</span><span>${vehicle?.color || '-'}</span></div>
+        <div class="row"><span>NTSA Clearance:</span><b>${ntsaClearance}</b></div>
       </div>
+      ${accessorySectionHtml}
       <div class="box">
         <div class="row" style="font-weight:bold;font-size:15px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-bottom:8px">
           <span>Payment Summary</span>
         </div>
-        <div class="row"><span>Vehicle Price</span><span>${formatCurrency(price)}</span></div>
+        <div class="row"><span>Vehicle Subtotal (${qty} unit${qty !== 1 ? 's' : ''})</span><span>${formatCurrency(basePrice)}</span></div>
+        ${accessoriesPrice > 0 ? `<div class="row"><span>Accessories</span><span>${formatCurrency(accessoriesPrice)}</span></div>` : ''}
         ${vat > 0 ? `<div class="row"><span>VAT (${(rate * 100).toFixed(0)}%)</span><span>${formatCurrency(vat)}</span></div>` : ''}
         <div class="row"><span>Total Amount</span><span style="font-weight:bold">${formatCurrency(total)}</span></div>
         <div class="row" style="color:#16a34a"><span>${sale.paymentMethod === 'Installments' ? 'Installments Paid' : 'Amount Paid'}</span><span>- ${formatCurrency(totalConfirmed)}</span></div>
@@ -820,11 +941,25 @@ export default function SaleDetails() {
           <span>Balance Due</span><span>${formatCurrency(balance)}</span>
         </div>
       </div>
-      <div class="sign"><div>Received By (Customer)</div><div>Authorised By (DONPAV ELECTRIC LTD)</div></div>
+      <div class="sign">
+        <div>
+          <p><b>Prepared by:</b> ${profile?.name || 'System Admin'}</p>
+          <div style="border-top:1px solid #475569;margin-top:20px;padding-top:4px">Signature / Date</div>
+        </div>
+        <div>
+          <p><b>Approved by:</b></p>
+          <div style="border-top:1px solid #475569;margin-top:20px;padding-top:4px">Signature / Date</div>
+        </div>
+        <div>
+          <p><b>Received by:</b></p>
+          <div style="border-top:1px solid #475569;margin-top:20px;padding-top:4px">Signature / Date</div>
+        </div>
+      </div>
       </body></html>`)
     w.document.close()
     w.print()
   }
+
 
   // ----- Stage indicators -----
   const flow = isCredit ? SALE_FLOW_CREDIT : SALE_FLOW_CASH
@@ -895,17 +1030,27 @@ export default function SaleDetails() {
               <span className="font-medium text-slate-700">{vehicle ? `${vehicle.model} (${vehicle.color})` : 'Not assigned'}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Price</span>
-              <span className="font-bold text-primary">{formatCurrency(sale.price)}</span>
+              <span className="text-slate-400">Price per Unit</span>
+              <span className="font-medium text-slate-700">{formatCurrency(sale.price)}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Units</span>
+              <span className="font-bold text-slate-700">{sale.units || 1}</span>
+            </div>
+            {accessoriesPrice > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-400">Accessories</span>
+                <span className="font-medium text-slate-700">{formatCurrency(accessoriesPrice)}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-slate-400">VAT ({((sale.vatRate ?? VAT_RATE) * 100).toFixed(0)}%)</span>
-              <span className="text-slate-700">{formatCurrency(computeVat(sale.price, sale.vatRate ?? VAT_RATE))}</span>
+              <span className="text-slate-700">{formatCurrency(vatAmount)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Total</span>
-              <span className="font-bold text-slate-700">
-                {formatCurrency(Number(sale.price || 0) + computeVat(sale.price, sale.vatRate ?? VAT_RATE))}
+            <div className="flex justify-between border-t border-slate-100 pt-2">
+              <span className="text-slate-500 font-semibold">Total</span>
+              <span className="font-bold text-primary text-base">
+                {formatCurrency(totalRequired)}
               </span>
             </div>
             <div className="flex justify-between">
@@ -934,6 +1079,40 @@ export default function SaleDetails() {
             )}
           </div>
         </Card>
+
+        {/* Accessories panel – visible once pre-delivery has been saved */}
+        {Object.keys(sale.accessories || {}).length > 0 && (
+          <Card className="lg:col-span-1">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold text-slate-700">Accessories Added</h3>
+              {canManage && sale.status === 'Pre-Delivery Service' && (
+                <button className="btn-ghost px-2 py-1 text-xs text-primary" onClick={openPreDelivery}>
+                  Edit
+                </button>
+              )}
+            </div>
+            <div className="space-y-2 text-sm">
+              {Object.values(sale.accessories || {}).map((acc) => (
+                <div key={acc.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2">
+                  <div>
+                    <p className="font-medium text-slate-700">{acc.name}</p>
+                    <p className="text-xs text-slate-400">Qty: {acc.qty} × {formatCurrency(acc.price)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-slate-800">{formatCurrency(acc.price * acc.qty)}</p>
+                    <span className={`text-xs font-medium ${acc.included ? 'text-green-600' : 'text-slate-400'}`}>
+                      {acc.included ? 'Billed' : 'Complimentary'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              <div className="mt-2 flex justify-between border-t border-slate-100 pt-2 font-semibold text-slate-700">
+                <span>Accessories Total</span>
+                <span>{formatCurrency(accessoriesPrice)}</span>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Action panel */}
         <Card className="lg:col-span-2">
@@ -1103,10 +1282,50 @@ export default function SaleDetails() {
                   })}
                 </div>
               </div>
+
+              {/* Accessories sub-panel */}
+              {Object.keys(sale.accessories || {}).length > 0 && (
+                <div className="rounded-xl border border-slate-100 p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm font-medium text-slate-600">Optional Accessories</p>
+                    {canManage && (
+                      <button className="btn-ghost px-2 py-1 text-xs text-primary" onClick={openPreDelivery}>
+                        Edit Accessories
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    {Object.values(sale.accessories || {}).map((acc) => (
+                      <div key={acc.id} className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">{acc.name} × {acc.qty}</span>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs font-medium ${acc.included ? 'text-green-600' : 'text-slate-400'}`}>
+                            {acc.included ? 'Billed' : 'Complimentary'}
+                          </span>
+                          <span className="font-medium text-slate-700">{formatCurrency(acc.price * acc.qty)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {accessoriesPrice > 0 && (
+                      <div className="mt-2 flex justify-between border-t border-slate-100 pt-2 text-sm font-semibold text-slate-700">
+                        <span>Billed Total</span>
+                        <span>{formatCurrency(accessoriesPrice)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {canManage && (
-                <div className="rounded-xl bg-slate-50 p-4 text-center">
-                  <p className="text-sm text-slate-500">Pre-delivery service complete. Verify customer documents next.</p>
-                  <button className="btn-primary mt-3" onClick={verifyDocuments}><FiCheckCircle /> Verify Documents</button>
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <button className="btn-ghost text-sm" onClick={openPreDelivery}>
+                      <FiTruck size={14} /> Edit Pre-Delivery / Accessories
+                    </button>
+                    <button className="btn-primary" onClick={verifyDocuments}>
+                      <FiCheckCircle /> Verify Documents & Proceed
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1223,9 +1442,14 @@ export default function SaleDetails() {
             </div>
           )}
           <div>
-            <label className="label">Price (KSH)</label>
+            <label className="label">Price per Unit (KSH)</label>
             <input type="number" className="input" {...agreeForm.register('price', { required: 'Price is required', min: { value: 1, message: 'Price must be greater than 0' } })} placeholder="Enter sale price" />
             {agreeForm.formState.errors.price && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.price.message}</p>}
+          </div>
+          <div>
+            <label className="label">Number of Units</label>
+            <input type="number" className="input" {...agreeForm.register('units', { required: 'Units is required', min: { value: 1, message: 'Must be at least 1' } })} defaultValue={1} />
+            {agreeForm.formState.errors.units && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.units.message}</p>}
           </div>
           <div>
             <label className="label">Branch</label>
@@ -1326,10 +1550,11 @@ export default function SaleDetails() {
             <div><label className="label">Invoice No.</label><input className="input" {...invoiceForm.register('invoiceNumber')} /></div>
             <div><label className="label">Invoice Date</label><input type="date" className="input" {...invoiceForm.register('invoiceDate')} /></div>
           </div>
-          <div className="rounded-xl bg-slate-50 p-3 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span>{formatCurrency(sale.price)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">VAT</span><span>{formatCurrency(computeVat(sale.price, Number(sale.vatRate ?? VAT_RATE)))}</span></div>
-            <div className="mt-1 flex justify-between font-bold"><span>Total</span><span>{formatCurrency(Number(sale.price || 0) + computeVat(sale.price, Number(sale.vatRate ?? VAT_RATE)))}</span></div>
+           <div className="rounded-xl bg-slate-50 p-3 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Vehicle Base Price ({qty} unit{qty !== 1 ? 's' : ''})</span><span>{formatCurrency(basePrice)}</span></div>
+            {accessoriesPrice > 0 && <div className="flex justify-between"><span className="text-slate-500">Accessories</span><span>{formatCurrency(accessoriesPrice)}</span></div>}
+            <div className="flex justify-between"><span className="text-slate-500">VAT ({((invoiceForm.watch('vatRate') ?? sale.vatRate ?? VAT_RATE) * 100).toFixed(0)}%)</span><span>{formatCurrency(computeVat(basePrice + accessoriesPrice, Number(invoiceForm.watch('vatRate') ?? sale.vatRate ?? VAT_RATE)))}</span></div>
+            <div className="mt-1 flex justify-between font-bold border-t border-slate-200 pt-1"><span>Total</span><span>{formatCurrency(basePrice + accessoriesPrice + computeVat(basePrice + accessoriesPrice, Number(invoiceForm.watch('vatRate') ?? sale.vatRate ?? VAT_RATE)))}</span></div>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setInvoiceOpen(false)}>Cancel</button>
@@ -1339,25 +1564,70 @@ export default function SaleDetails() {
       </Modal>
 
       {/* Pre-Delivery Service Modal */}
-      <Modal open={preDeliveryOpen} onClose={() => setPreDeliveryOpen(false)} title="Pre-Delivery Service">
+      <Modal open={preDeliveryOpen} onClose={() => setPreDeliveryOpen(false)} title="Pre-Delivery Service" size="lg">
         <form onSubmit={preDeliveryForm.handleSubmit(completePreDelivery)} className="space-y-4">
-          <p className="text-sm text-slate-500">Confirm the following have been completed at the spare parts shop:</p>
-          <div className="space-y-3">
-            {PRE_DELIVERY_CHECKLIST.map((item) => (
-              <div key={item.key} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3">
-                <input
-                  type="checkbox"
-                  id={item.key}
-                  className="h-5 w-5 rounded border-slate-300 text-primary focus:ring-primary"
-                  {...preDeliveryForm.register(item.key)}
-                />
-                <label htmlFor={item.key} className="text-sm font-medium text-slate-700">{item.label}</label>
-              </div>
-            ))}
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">Checklist Tasks (Non-charged):</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {PRE_DELIVERY_CHECKLIST.map((item) => (
+                <div key={item.key} className="flex items-center gap-3 rounded-xl border border-slate-100 p-2.5">
+                  <input
+                    type="checkbox"
+                    id={item.key}
+                    className="h-5 w-5 rounded border-slate-300 text-primary focus:ring-primary"
+                    {...preDeliveryForm.register(item.key)}
+                  />
+                  <label htmlFor={item.key} className="text-sm font-medium text-slate-700">{item.label}</label>
+                </div>
+              ))}
+            </div>
           </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-sm font-semibold text-slate-700 mb-1">Optional Charged Accessories:</p>
+            <p className="text-xs text-slate-400 mb-3">Add items and select whether they should be added to the invoice bill total.</p>
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="min-w-full divide-y divide-slate-100 text-sm text-left">
+                <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase">
+                  <tr>
+                    <th className="px-4 py-2">Accessory</th>
+                    <th className="px-4 py-2">Price</th>
+                    <th className="px-4 py-2">Available</th>
+                    <th className="px-4 py-2 w-24">Qty</th>
+                    <th className="px-4 py-2 w-32 text-center">Bill to Invoice</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(data?.accessories || []).map((acc) => (
+                    <tr key={acc.id}>
+                      <td className="px-4 py-2.5 font-medium text-slate-700">{acc.name}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{formatCurrency(acc.price)}</td>
+                      <td className="px-4 py-2.5 text-slate-500">{acc.stock} in stock</td>
+                      <td className="px-4 py-2.5">
+                        <input
+                          type="number"
+                          min={0}
+                          className="input px-2 py-1 text-center"
+                          {...preDeliveryForm.register(`qty_${acc.id}`)}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 rounded border-slate-300 text-primary focus:ring-primary mx-auto"
+                          {...preDeliveryForm.register(`inc_${acc.id}`)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" className="btn-outline" onClick={() => setPreDeliveryOpen(false)}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={preDeliveryForm.formState.isSubmitting}>{preDeliveryForm.formState.isSubmitting && <ButtonLoader />} Complete</button>
+            <button type="submit" className="btn-primary" disabled={preDeliveryForm.formState.isSubmitting}>{preDeliveryForm.formState.isSubmitting && <ButtonLoader />} Save Changes</button>
           </div>
         </form>
       </Modal>

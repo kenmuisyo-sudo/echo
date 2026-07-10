@@ -48,7 +48,7 @@ export default function Dashboard() {
     )
   }
 
-  const { customers, vehicles, sales, credit } = data
+  const { customers, vehicles, sales, credit, payments } = data
   const activeLeads = sales.filter((s) => ['Inquiry', 'Agreed'].includes(s.status))
   const salesToday = sales.filter((s) => isToday(s.createdAt))
   const loansPending = sales.filter((s) => ['Loan Requested', 'Loan Submitted'].includes(s.status))
@@ -89,6 +89,12 @@ export default function Dashboard() {
     .sort((a, b) => (b.time || 0) - (a.time || 0))
     .slice(0, 8)
 
+  // Revenue metrics
+  const dispatchedSales = sales.filter((s) => s.status === 'Dispatched')
+  const vehicleRevenue = dispatchedSales.reduce((sum, s) => sum + Number(s.price || 0) * Number(s.units || 1), 0)
+  const accessoriesRevenue = sales.reduce((sum, s) => sum + Number(s.accessoriesTotal || 0), 0)
+  const totalCollected = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + Number(p.amount || 0), 0)
+
   const stats = [
     { icon: FiUsers, label: 'Total Customers', value: customers.length, color: 'primary' },
     { icon: FiShoppingCart, label: 'Active Leads', value: activeLeads.length, color: 'blue' },
@@ -99,6 +105,9 @@ export default function Dashboard() {
     { icon: FiCheckCircle, label: 'Dispatched', value: dispatched.length, color: 'secondary' },
     { icon: FiTruck, label: 'Ready Stock (Cleared)', value: readyStock.length, color: 'primary' },
     { icon: FiDollarSign, label: 'In Procurement', value: inProcurement.length, color: 'blue' },
+    { icon: FiDollarSign, label: 'Vehicle Revenue', value: formatCurrency(vehicleRevenue), color: 'secondary', isText: true },
+    { icon: FiDollarSign, label: 'Accessories Revenue', value: formatCurrency(accessoriesRevenue), color: 'amber', isText: true },
+    { icon: FiDollarSign, label: 'Total Collected (Payments)', value: formatCurrency(totalCollected), color: 'primary', isText: true },
   ]
 
   return (

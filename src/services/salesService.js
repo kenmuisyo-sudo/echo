@@ -1,5 +1,6 @@
 import { create, getAll, getById, updateById, removeById, textSearch } from './dataService'
 import { inventoryService } from './inventoryService'
+import { settingsService } from './settingsService'
 import { VAT_RATE } from '../constants'
 
 const PATH = 'sales'
@@ -34,12 +35,13 @@ export const saleService = {
    * Customer agrees to proceed. Capture payment method + price + branch.
    * Cash → "Payment Pending". Credit → "Loan Requested".
    */
-  agreeToProceed: async (saleId, { paymentMethod, price, branch }) => {
+  agreeToProceed: async (saleId, { paymentMethod, price, branch, units = 1 }) => {
     const status = paymentMethod === 'Cash' || paymentMethod === 'Installments' ? 'Payment Pending' : 'Loan Requested'
     await updateById(PATH, saleId, {
       paymentMethod,
       price: Number(price) || 0,
       branch: branch || '',
+      units: Number(units) || 1,
       status,
     })
     return status
@@ -57,8 +59,9 @@ export const saleService = {
    * Credit path: advance the loan stage. Accepted → ready for unit assignment.
    * Rejected is terminal.
    */
-  setLoanStage: async (saleId, stage) => {
-    await updateById(PATH, saleId, { status: stage, loanStageUpdatedAt: Date.now() })
+  setLoanStage: async (saleId, loanStatus) => {
+    const status = loanStatus === 'Loan Accepted' ? 'Loan Accepted' : loanStatus === 'Loan Rejected' ? 'Loan Rejected' : 'Loan Submitted'
+    await updateById(PATH, saleId, { status })
   },
 
   /**
@@ -68,8 +71,15 @@ export const saleService = {
   assignUnit: async (saleId, vehicleId) => {
     const vehicle = await inventoryService.getById(vehicleId)
     if (!vehicle) throw new Error('Vehicle not found')
-    // Throws if no available stock
-    await inventoryService.reserveUnit(vehicleId, vehicle)
+    // Get sale to find out how many units are purchased
+    const sale = await getById(PATH, saleId)
+    const units = Number(sale?.units || 1)
+    
+    // Reserve stock 'units' times
+    for (let i = 0; i < units; i++) {
+      await inventoryService.reserveUnit(vehicleId, vehicle)
+    }
+    
     await updateById(PATH, saleId, { vehicleId, status: 'Unit Assigned', unitAssignedAt: Date.now() })
   },
 
@@ -79,7 +89,13 @@ export const saleService = {
   unassignUnit: async (saleId, vehicleId, prevStatus = 'Payment Confirmed') => {
     if (vehicleId) {
       const vehicle = await inventoryService.getById(vehicleId)
-      if (vehicle) await inventoryService.releaseUnit(vehicleId, vehicle)
+      if (vehicle) {
+        const sale = await getById(PATH, saleId)
+        const units = Number(sale?.units || 1)
+        for (let i = 0; i < units; i++) {
+          await inventoryService.releaseUnit(vehicleId, vehicle)
+        }
+      }
     }
     await updateById(PATH, saleId, { vehicleId: '', status: prevStatus, unitAssignedAt: null })
   },
@@ -95,11 +111,13 @@ export const saleService = {
    * Pre-delivery service completed at the spare parts shop.
    * Stores the checklist items that were completed.
    */
-  completePreDelivery: async (saleId, checklist) => {
+  completePreDelivery: async (saleId, checklist, extras = {}) => {
     await updateById(PATH, saleId, {
       status: 'Pre-Delivery Service',
       preDeliveryChecklist: checklist,
       preDeliveryAt: Date.now(),
+      accessories: extras.accessories || {},
+      accessoriesTotal: Number(extras.accessoriesTotal) || 0,
     })
   },
 
@@ -124,10 +142,21 @@ export const saleService = {
    * Moves one unit from Sold → Delivered in the vehicle batch.
    */
   dispatch: async (saleId, vehicleId, details = {}) => {
-    await updateById(PATH, saleId, { status: 'Dispatched', dispatchedAt: Date.now(), ...details })
+    let dnNum = details.deliveryNoteNumber || details.deliveryNoteNo
+    if (!dnNum) {
+      const serial = await settingsService.getNextSerial('delivery_note')
+      dnNum = `DN-${serial}`
+    }
+    await updateById(PATH, saleId, { status: 'Dispatched', dispatchedAt: Date.now(), deliveryNoteNumber: dnNum, ...details })
     if (vehicleId) {
       const vehicle = await inventoryService.getById(vehicleId)
-      if (vehicle) await inventoryService.markDeliveredUnit(vehicleId, vehicle)
+      if (vehicle) {
+        const sale = await getById(PATH, saleId)
+        const units = Number(sale?.units || 1)
+        for (let i = 0; i < units; i++) {
+          await inventoryService.markDeliveredUnit(vehicleId, vehicle)
+        }
+      }
     }
   },
 
@@ -141,12 +170,19 @@ export const saleService = {
     if (!sale) throw new Error('Sale not found')
     const price = Number(sale.price || 0)
     const vatAmount = Math.round(price * vatRate)
+    
+    let invNum = invoiceNumber || sale.invoiceNumber
+    if (!invNum) {
+      const serial = await settingsService.getNextSerial('invoice')
+      invNum = `INV-${serial}`
+    }
+
     const payload = {
       registrationNo: registrationNo || sale.registrationNo || '',
       vatRate,
       vatAmount,
       totalAmount: price + vatAmount,
-      invoiceNumber: invoiceNumber || sale.invoiceNumber,
+      invoiceNumber: invNum,
       invoicedAt: sale.invoicedAt || Date.now(),
       status: 'Invoice Raised',
     }

@@ -34,12 +34,11 @@ export default function Users() {
 
   const onSubmit = async (data) => {
     try {
-      await createUser({
+      await userService.createWithAuth(data.email, data.password, {
         name: data.name,
-        email: data.email,
-        password: data.password,
         phone: data.phone,
         role: data.role,
+        department: ROLE_DEPARTMENT[data.role] || '',
       })
       toast.success('User created')
       setCreateOpen(false)

@@ -14,6 +14,7 @@ import VehicleDetails from './pages/VehicleDetails'
 import Reports from './pages/Reports'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
+import Accessories from './pages/Accessories'
 import NotFound from './pages/NotFound'
 
 const ALL = Object.values(ROLES)
@@ -37,6 +38,7 @@ export default function App() {
 
       <Route path="/inventory" element={<ProtectedRoute allowedRoles={ALL}><Inventory /></ProtectedRoute>} />
       <Route path="/inventory/:id" element={<ProtectedRoute allowedRoles={ALL}><VehicleDetails /></ProtectedRoute>} />
+      <Route path="/accessories" element={<ProtectedRoute allowedRoles={ALL}><Accessories /></ProtectedRoute>} />
 
       <Route path="/reports" element={<ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.FINANCE_OFFICER]}><Reports /></ProtectedRoute>} />
 

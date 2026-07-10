@@ -72,4 +72,16 @@ export const settingsService = {
     await settingsService.saveBranches(updated)
     return updated
   },
+
+  getNextSerial: async (type) => {
+    const counterRef = ref(db, `${NODE}/counters/${type}`)
+    const snap = await get(counterRef)
+    const current = Number(snap.val() || 0)
+    let nextVal = current + 1
+    if (nextVal > 9999) {
+      nextVal = 1
+    }
+    await set(counterRef, nextVal)
+    return String(nextVal).padStart(4, '0')
+  },
 }
