@@ -46,6 +46,7 @@ import {
   SALE_FLOW_CASH,
   SALE_FLOW_CREDIT,
   VEHICLE_ASSIGNABLE_STATUS,
+  VEHICLE_MODELS,
 } from '../constants'
 import {
   formatCurrency,
@@ -149,6 +150,7 @@ export default function SaleDetails() {
       price: sale.price > 0 ? sale.price : '',
       branch: sale.branch || branches[0] || '',
       units: sale.units || 1,
+      model: sale.model || VEHICLE_MODELS[0],
     }
     const accList = data?.accessories || []
     accList.forEach((acc) => {
@@ -194,6 +196,7 @@ export default function SaleDetails() {
         units: formData.units || 1,
         accessories: selectedAccessories,
         accessoriesTotal,
+        model: formData.model,
       })
       // If credit, create the credit application record so documents can be uploaded.
       if (formData.paymentMethod === 'Credit' && !credit) {
@@ -1538,13 +1541,20 @@ export default function SaleDetails() {
       {/* Agree to Proceed Modal */}
       <Modal open={agreeOpen} onClose={() => setAgreeOpen(false)} title="Agree to Proceed & Select Accessories" size="lg">
         <form onSubmit={agreeForm.handleSubmit(doAgree)} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="label">Payment Method</label>
               <select className="input" {...agreeForm.register('paymentMethod', { required: 'Required' })}>
                 {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
               </select>
               {agreeForm.formState.errors.paymentMethod && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.paymentMethod.message}</p>}
+            </div>
+            <div>
+              <label className="label">Vehicle Model Category</label>
+              <select className="input" {...agreeForm.register('model', { required: 'Required' })}>
+                {VEHICLE_MODELS.map((m) => <option key={m}>{m}</option>)}
+              </select>
+              {agreeForm.formState.errors.model && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.model.message}</p>}
             </div>
             <div>
               <label className="label">Branch</label>
@@ -1565,7 +1575,25 @@ export default function SaleDetails() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="label">Price per Unit (KSH)</label>
-              <input type="number" className="input" {...agreeForm.register('price', { required: 'Price is required', min: { value: 1, message: 'Price must be greater than 0' } })} placeholder="Enter sale price" />
+              <input
+                type="number"
+                className="input"
+                {...agreeForm.register('price', {
+                  required: 'Price is required',
+                  validate: (val) => {
+                    const priceVal = Number(val)
+                    const selectedModel = agreeForm.getValues('model')
+                    if (selectedModel === 'Rhinggo Tuktuk RT-300 Solar' && priceVal < 200000) {
+                      return 'Price per unit cannot be less than KSH 200,000 for a Rhinggo Tuktuk'
+                    }
+                    if (selectedModel === 'Rhinggo Bike' && priceVal < 50000) {
+                      return 'Price per unit cannot be less than KSH 50,000 for a Rhinggo Bike'
+                    }
+                    return true
+                  }
+                })}
+                placeholder="Enter sale price"
+              />
               {agreeForm.formState.errors.price && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.price.message}</p>}
             </div>
             <div>
