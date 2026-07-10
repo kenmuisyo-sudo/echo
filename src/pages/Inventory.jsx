@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { FiPlus, FiEdit2, FiTrash2, FiEye, FiUpload, FiX, FiArrowRight } from 'react-icons/fi'
+import { FiPlus, FiEdit2, FiTrash2, FiEye, FiUpload, FiX, FiArrowRight, FiPackage } from 'react-icons/fi'
 import toast from 'react-hot-toast'
 import AppLayout from '../components/layouts/AppLayout'
 import PageHeader from '../components/ui/PageHeader'
@@ -13,7 +13,7 @@ import { ButtonLoader } from '../components/ui/Spinner'
 import { useAsyncList } from '../hooks/useAsync'
 import { useAuth } from '../contexts/AuthContext'
 import { inventoryService, MAX_VEHICLE_IMAGES, MIN_VEHICLE_IMAGES } from '../services'
-import { VEHICLE_MODELS, VEHICLE_COLORS, VEHICLE_PROCUREMENT_STAGES } from '../constants'
+import { VEHICLE_MODELS, VEHICLE_COLORS, VEHICLE_PROCUREMENT_STAGES, VEHICLE_STATUS } from '../constants'
 import { formatCurrency, formatDate } from '../utils/helpers'
 import { can } from '../utils/permissions'
 
@@ -182,7 +182,7 @@ export default function Inventory() {
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
-        {['All', ...VEHICLE_PROCUREMENT_STAGES].map((s) => (
+        {['All', ...VEHICLE_STATUS].map((s) => (
           <button
             key={s}
             onClick={() => setFilter(s)}
@@ -210,12 +210,13 @@ export default function Inventory() {
       ) : (
         <DataTable
           columns={[
-            { key: 'model', label: 'Vehicle' },
+            { key: 'model', label: 'Batch / Vehicle' },
             { key: 'price', label: 'Price (KSH)' },
             { key: 'color', label: 'Color' },
             { key: 'quantity', label: 'Stock' },
+            { key: 'status', label: 'Stage' },
             { key: 'chassisNumber', label: 'Chassis' },
-            { key: 'createdAt', label: 'Added' },
+            { key: 'createdAt', label: 'Received On' },
             { key: 'actions', label: '' },
           ]}
           data={filtered}
@@ -238,10 +239,13 @@ export default function Inventory() {
                       </div>
                     ) : (
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
-                        <FiUpload size={16} />
+                        <FiPackage size={16} />
                       </div>
                     )}
-                    <span className="font-medium text-primary hover:underline">{v.model}</span>
+                    <div>
+                      <span className="font-medium text-primary hover:underline">{v.model}</span>
+                      <p className="text-xs text-slate-400">{v.color} · Added {formatDate(v.createdAt)}</p>
+                    </div>
                   </Link>
                 </td>
                 <td className="font-medium text-slate-700">{formatCurrency(v.price)}</td>
@@ -251,6 +255,20 @@ export default function Inventory() {
                   <span className="ml-1 text-xs text-slate-400">
                     ({Math.max((v.quantity ?? 1) - (v.reservedQty || 0) - (v.soldQty || 0) - (v.deliveredQty || 0), 0)} avail)
                   </span>
+                </td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={statusVariant(v.status)}>{v.status || 'Received'}</Badge>
+                    {canManage && v.status === 'Received' && (
+                      <button
+                        className="inline-flex items-center gap-1 rounded-lg border border-primary px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/5"
+                        title="Advance to NTSA Booking"
+                        onClick={() => changeStatus(v, 'NTSA Booking')}
+                      >
+                        <FiArrowRight size={11} /> NTSA Booking
+                      </button>
+                    )}
+                  </div>
                 </td>
                 <td className="font-mono text-xs text-slate-500">{v.chassisNumber || '-'}</td>
                 <td className="text-slate-500">{formatDate(v.createdAt)}</td>

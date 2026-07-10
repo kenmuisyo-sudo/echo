@@ -126,6 +126,12 @@ export default function SaleDetails() {
   const isCash = sale.paymentMethod === 'Cash' || sale.paymentMethod === 'Installments'
   const isCredit = sale.paymentMethod === 'Credit'
   const paymentConfirmed = payments.some((p) => p.confirmed)
+  const totalConfirmed = payments.filter((p) => p.confirmed).reduce((sum, p) => sum + Number(p.amount || 0), 0)
+  const vatAmount = computeVat(sale.price, sale.vatRate ?? VAT_RATE)
+  const totalRequired = Number(sale.price || 0) + vatAmount
+  const isFullyPaid = isCredit
+    ? (credit?.status === 'Loan Accepted' && paymentConfirmed)
+    : (totalConfirmed >= totalRequired)
   const creditDocs = credit?.documents || {}
 
   // ----- Agree to proceed -----
@@ -1109,19 +1115,39 @@ export default function SaleDetails() {
           {/* 7. Document verification → NTSA transfer */}
           {sale.status === 'Document Verification' && canManage && (
             <div className="rounded-xl bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-500">Documents verified. Initiate NTSA ownership transfer or dispatch unit directly.</p>
+              <p className="text-sm text-slate-500 font-medium mb-2">Documents verified.</p>
+              <p className="text-xs text-slate-400 mb-4">
+                You can record the NTSA transfer start or, if the NTSA transfer is not yet initiated/cleared at the time of collection, proceed to dispatch with NTSA transfer pending.
+              </p>
               <div className="mt-4 flex justify-center gap-4">
                 <button className="btn-primary" onClick={transferNtsa}><FiFileText /> Record NTSA Transfer</button>
-                <button className="btn-outline" onClick={openDispatch}><FiTruck /> Dispatch Unit</button>
+                {isFullyPaid ? (
+                  <button className="btn-outline" onClick={openDispatch}><FiTruck /> Dispatch Unit (NTSA Pending)</button>
+                ) : (
+                  <button className="btn-outline" disabled title="Requires full payment/deposit confirmation to dispatch"><FiTruck /> Dispatch Unit (Requires Payment)</button>
+                )}
               </div>
+              {!isFullyPaid && (
+                <p className="mt-2 text-xs text-red-500 font-medium">Dispatch is restricted until full payment or credit approval & down payment are confirmed.</p>
+              )}
             </div>
           )}
 
           {/* 8. NTSA transfer → dispatch */}
           {sale.status === 'NTSA Transfer' && canManage && (
             <div className="rounded-xl bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-500">Ownership transferred. Dispatch the tuk-tuk and raise warranty.</p>
-              <button className="btn-primary mt-4" onClick={openDispatch}><FiTruck /> Dispatch</button>
+              <p className="text-sm text-slate-500 font-medium mb-1">NTSA Transfer in process.</p>
+              <p className="text-xs text-slate-400 mb-4">
+                If the NTSA clearance/ownership transfer is not fully confirmed/completed at the time of collection, you can still proceed to dispatch the vehicle.
+              </p>
+              {isFullyPaid ? (
+                <button className="btn-primary mt-4" onClick={openDispatch}><FiTruck /> Dispatch Unit</button>
+              ) : (
+                <>
+                  <button className="btn-primary mt-4" disabled><FiTruck /> Dispatch Unit (Requires Payment)</button>
+                  <p className="mt-2 text-xs text-red-500 font-medium">Dispatch is restricted until full payment or credit approval & down payment are confirmed.</p>
+                </>
+              )}
             </div>
           )}
 

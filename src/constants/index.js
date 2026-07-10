@@ -54,7 +54,7 @@ export const VEHICLE_SALE_STAGES = ['Reserved', 'Sold', 'Delivered']
 export const VEHICLE_STATUS = [...VEHICLE_PROCUREMENT_STAGES, ...VEHICLE_SALE_STAGES]
 
 // Vehicles in these statuses are available to be assigned to a customer.
-export const VEHICLE_ASSIGNABLE_STATUS = ['Received', 'NTSA Booking', 'NTSA Cleared']
+export const VEHICLE_ASSIGNABLE_STATUS = ['NTSA Booking', 'NTSA Cleared']
 
 export const VEHICLE_MODELS = ['EcoRider Pro', 'CargoMax X1', 'CityCab Deluxe', 'FleetRunner S', 'Hauler HD', 'Rhinggo tuktuk', 'Rhinggo bike']
 
