@@ -35,7 +35,7 @@ export const saleService = {
    * Customer agrees to proceed. Capture payment method + price + branch.
    * Cash → "Payment Pending". Credit → "Loan Requested".
    */
-  agreeToProceed: async (saleId, { paymentMethod, price, branch, units = 1, accessories = {}, accessoriesTotal = 0, model = '' }) => {
+  agreeToProceed: async (saleId, { paymentMethod, price, branch, units = 1, accessories = {}, accessoriesTotal = 0, model = '', preselectedVehicleId = '' }) => {
     const status = paymentMethod === 'Cash' || paymentMethod === 'Installments' ? 'Payment Pending' : 'Loan Requested'
     await updateById(PATH, saleId, {
       paymentMethod,
@@ -46,6 +46,7 @@ export const saleService = {
       accessories,
       accessoriesTotal,
       model,
+      preselectedVehicleId,
     })
     return status
   },

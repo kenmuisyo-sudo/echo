@@ -145,12 +145,15 @@ export default function SaleDetails() {
   // ----- Agree to proceed -----
   const openAgree = () => {
     const existingAccs = sale.accessories || {}
+    const firstVehicle = assignableVehicles[0]
+    const preselectedVehicleId = sale.preselectedVehicleId || firstVehicle?.id || ''
+    const preselectedVehicle = assignableVehicles.find(v => v.id === preselectedVehicleId) || firstVehicle
     const resetObj = {
       paymentMethod: sale.paymentMethod || 'Cash',
-      price: sale.price > 0 ? sale.price : '',
+      price: sale.price > 0 ? sale.price : (preselectedVehicle?.price || ''),
       branch: sale.branch || branches[0] || '',
       units: sale.units || 1,
-      model: sale.model || VEHICLE_MODELS[0],
+      vehicleUnitId: preselectedVehicleId,
     }
     const accList = data?.accessories || []
     accList.forEach((acc) => {
@@ -196,7 +199,8 @@ export default function SaleDetails() {
         units: formData.units || 1,
         accessories: selectedAccessories,
         accessoriesTotal,
-        model: formData.model,
+        model: VEHICLE_MODELS[0],
+        preselectedVehicleId: formData.vehicleUnitId || '',
       })
       // If credit, create the credit application record so documents can be uploaded.
       if (formData.paymentMethod === 'Credit' && !credit) {
@@ -482,7 +486,9 @@ export default function SaleDetails() {
   // ----- Assign unit -----
   const openAssign = () => {
     const existingAccs = sale.accessories || {}
-    const resetObj = { vehicleId: sale.vehicleId || '' }
+    // Pre-select vehicle chosen at agree step, or first available
+    const preId = sale.preselectedVehicleId || sale.vehicleId || assignableVehicles[0]?.id || ''
+    const resetObj = { vehicleId: preId }
     const accList = data?.accessories || []
     accList.forEach((acc) => {
       resetObj[`qty_${acc.id}`] = existingAccs[acc.id]?.qty || 0
@@ -494,7 +500,6 @@ export default function SaleDetails() {
 
   const doAssign = async (formData) => {
     try {
-      // Process accessories
       const accList = data?.accessories || []
       const selectedAccessories = {}
       let accessoriesTotal = 0
@@ -1541,20 +1546,36 @@ export default function SaleDetails() {
       {/* Agree to Proceed Modal */}
       <Modal open={agreeOpen} onClose={() => setAgreeOpen(false)} title="Agree to Proceed & Select Accessories" size="lg">
         <form onSubmit={agreeForm.handleSubmit(doAgree)} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Vehicle unit selector — auto-fills price */}
+          <div>
+            <label className="label">Select Available Unit (Rhinggo Tuktuk RT-300 Solar)</label>
+            <select
+              className="input"
+              {...agreeForm.register('vehicleUnitId', { required: 'Please select a unit' })}
+              onChange={(e) => {
+                const selected = assignableVehicles.find(v => v.id === e.target.value)
+                if (selected?.price) agreeForm.setValue('price', selected.price)
+                agreeForm.setValue('vehicleUnitId', e.target.value)
+              }}
+            >
+              <option value="">— Select a unit —</option>
+              {assignableVehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.model} · {v.color} · Chassis: {v.chassisNumber || v.id?.slice(-6)} · Price: KSH {Number(v.price || 0).toLocaleString()}
+                </option>
+              ))}
+            </select>
+            {agreeForm.formState.errors.vehicleUnitId && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.vehicleUnitId.message}</p>}
+            {assignableVehicles.length === 0 && <p className="mt-1 text-xs text-amber-600">No NTSA-cleared units available in stock.</p>}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="label">Payment Method</label>
               <select className="input" {...agreeForm.register('paymentMethod', { required: 'Required' })}>
                 {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
               </select>
               {agreeForm.formState.errors.paymentMethod && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.paymentMethod.message}</p>}
-            </div>
-            <div>
-              <label className="label">Vehicle Model Category</label>
-              <select className="input" {...agreeForm.register('model', { required: 'Required' })}>
-                {VEHICLE_MODELS.map((m) => <option key={m}>{m}</option>)}
-              </select>
-              {agreeForm.formState.errors.model && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.model.message}</p>}
             </div>
             <div>
               <label className="label">Branch</label>
@@ -1566,33 +1587,22 @@ export default function SaleDetails() {
               {branches.length === 0 && <p className="mt-1 text-xs text-amber-600">No branches configured. Add them in Settings.</p>}
             </div>
           </div>
+
           {agreeForm.watch('paymentMethod') === 'Credit' && (
             <div className="rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
               <FiFileText className="mr-1 inline" size={14} />
-              Credit applications require supporting documents (National ID, KRA PIN, Driving License, Guarantor's Documents). You will be prompted to upload them after proceeding.
+              Credit applications require supporting documents. You will be prompted to upload them after proceeding.
             </div>
           )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label">Price per Unit (KSH)</label>
+              <label className="label">Price per Unit (KSH) — auto-filled from selected unit</label>
               <input
                 type="number"
-                className="input"
-                {...agreeForm.register('price', {
-                  required: 'Price is required',
-                  validate: (val) => {
-                    const priceVal = Number(val)
-                    const selectedModel = agreeForm.getValues('model')
-                    if (selectedModel === 'Rhinggo Tuktuk RT-300 Solar' && priceVal < 200000) {
-                      return 'Price per unit cannot be less than KSH 200,000 for a Rhinggo Tuktuk'
-                    }
-                    if (selectedModel === 'Rhinggo Bike' && priceVal < 50000) {
-                      return 'Price per unit cannot be less than KSH 50,000 for a Rhinggo Bike'
-                    }
-                    return true
-                  }
-                })}
-                placeholder="Enter sale price"
+                className="input bg-slate-50"
+                readOnly
+                {...agreeForm.register('price', { required: 'Select a unit above to fill the price' })}
               />
               {agreeForm.formState.errors.price && <p className="mt-1 text-xs text-red-500">{agreeForm.formState.errors.price.message}</p>}
             </div>
@@ -1718,20 +1728,64 @@ export default function SaleDetails() {
       {/* Assign Unit Modal */}
       <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title="Assign Unit & Accessories" size="lg">
         <form onSubmit={assignForm.handleSubmit(doAssign)} className="space-y-5">
-          {/* Vehicle selector */}
-          <div>
-            <label className="label">Available Units (NTSA Cleared)</label>
-            <select className="input" {...assignForm.register('vehicleId', { required: 'Required' })}>
-              <option value="">Select unit</option>
-              {assignableVehicles.map((v) => <option key={v.id} value={v.id}>{v.model} — {v.color} ({v.chassisNumber || v.id?.slice(-4)})</option>)}
-            </select>
-            {assignableVehicles.length === 0 && <p className="mt-1 text-xs text-amber-600">No NTSA-cleared units available.</p>}
-          </div>
+          {/* Hidden vehicleId field */}
+          <input type="hidden" {...assignForm.register('vehicleId', { required: 'A unit must be selected' })} />
+
+          {/* Vehicle confirmation card */}
+          {(() => {
+            const preId = assignForm.watch('vehicleId')
+            const preVehicle = assignableVehicles.find(v => v.id === preId)
+            if (preVehicle) {
+              return (
+                <div className="rounded-xl border-2 border-green-200 bg-green-50 p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <FiCheckCircle className="text-green-500" size={18} />
+                    <p className="text-sm font-semibold text-green-700">Unit Pre-Selected</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm mt-2">
+                    <div><span className="text-slate-400">Model:</span> <span className="font-medium text-slate-700">{preVehicle.model}</span></div>
+                    <div><span className="text-slate-400">Color:</span> <span className="font-medium text-slate-700">{preVehicle.color}</span></div>
+                    <div><span className="text-slate-400">Chassis:</span> <span className="font-medium text-slate-700">{preVehicle.chassisNumber || '—'}</span></div>
+                    <div><span className="text-slate-400">Engine:</span> <span className="font-medium text-slate-700">{preVehicle.engineNumber || '—'}</span></div>
+                    <div><span className="text-slate-400">Status:</span> <span className="font-medium text-slate-700">{preVehicle.status}</span></div>
+                    <div><span className="text-slate-400">Price:</span> <span className="font-semibold text-primary">{formatCurrency(preVehicle.price)}</span></div>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-3 text-xs text-slate-400 hover:text-slate-600 underline"
+                    onClick={() => assignForm.setValue('vehicleId', '')}
+                  >
+                    Change unit
+                  </button>
+                </div>
+              )
+            }
+            // Fallback: show dropdown if no pre-selection
+            return (
+              <div>
+                <label className="label">Select Available Unit (NTSA Cleared)</label>
+                <select
+                  className="input"
+                  onChange={(e) => assignForm.setValue('vehicleId', e.target.value)}
+                  defaultValue=""
+                >
+                  <option value="">— Select a unit —</option>
+                  {assignableVehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.model} · {v.color} · Chassis: {v.chassisNumber || v.id?.slice(-6)} · {formatCurrency(v.price)}
+                    </option>
+                  ))}
+                </select>
+                {assignableVehicles.length === 0 && <p className="mt-1 text-xs text-amber-600">No NTSA-cleared units available.</p>}
+              </div>
+            )
+          })()}
+          {assignForm.formState.errors.vehicleId && <p className="text-xs text-red-500">{assignForm.formState.errors.vehicleId.message}</p>}
 
           {/* Accessories table */}
           <div className="border-t border-slate-100 pt-4">
             <p className="text-sm font-semibold text-slate-700 mb-1">Optional Charged Accessories</p>
-            <p className="text-xs text-slate-400 mb-3">Select accessories to include with the unit. Tick "Bill to Invoice" to add their price to the customer's total.</p>
+            <p className="text-xs text-slate-400 mb-3">Adjust accessories if needed. Tick "Bill to Invoice" to add to the customer's total.</p>
             <div className="overflow-x-auto rounded-xl border border-slate-100">
               <table className="min-w-full divide-y divide-slate-100 text-sm text-left">
                 <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase">
@@ -1786,7 +1840,6 @@ export default function SaleDetails() {
               }, 0)
               const subtotal = unitPrice * qty + accTotal
               const vat = computeVat(subtotal, sale.vatRate ?? VAT_RATE)
-              const total = subtotal + vat
               return accTotal > 0 ? (
                 <div className="mt-3 rounded-xl bg-primary-50 border border-primary/20 p-3 text-sm space-y-1">
                   <div className="flex justify-between text-slate-600">
