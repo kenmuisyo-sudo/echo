@@ -1277,26 +1277,66 @@ export default function SaleDetails() {
 
           {/* 4. Unit assigned → raise invoice */}
           {sale.status === 'Unit Assigned' && canManage && (
-            <div className="rounded-xl bg-slate-50 p-6 text-center">
-              {isCredit && !paymentConfirmed ? (
-                <>
-                  <p className="mb-3 text-sm text-red-500 font-medium">A down payment must be recorded and confirmed before you can raise an invoice.</p>
-                  <button className="btn-primary" disabled><FiFileText /> Raise Invoice</button>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-slate-500">Unit assigned. Raise an invoice for the customer.</p>
-                  <button className="btn-primary mt-4" onClick={openInvoice}><FiFileText /> Raise Invoice</button>
-                </>
+            <div className="space-y-3 mb-6">
+              {Object.keys(sale.accessories || {}).length > 0 && (
+                <div className="rounded-xl border border-slate-100 p-4 text-left">
+                  <p className="text-sm font-semibold text-slate-700 mb-2">Accessories Selected:</p>
+                  <div className="space-y-1.5">
+                    {Object.values(sale.accessories || {}).map((acc) => (
+                      <div key={acc.id} className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">{acc.name} × {acc.qty}</span>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs font-medium ${acc.included ? 'text-green-600' : 'text-slate-400'}`}>
+                            {acc.included ? 'Billed' : 'Complimentary'}
+                          </span>
+                          <span className="font-medium text-slate-700">{formatCurrency(acc.price * acc.qty)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
+              <div className="rounded-xl bg-slate-50 p-6 text-center">
+                {isCredit && !paymentConfirmed ? (
+                  <>
+                    <p className="mb-3 text-sm text-red-500 font-medium">A down payment must be recorded and confirmed before you can raise an invoice.</p>
+                    <button className="btn-primary" disabled><FiFileText /> Raise Invoice</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-slate-500">Unit assigned. Raise an invoice for the customer.</p>
+                    <button className="btn-primary mt-4" onClick={openInvoice}><FiFileText /> Raise Invoice</button>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
           {/* 5. Invoice raised → pre-delivery service */}
           {sale.status === 'Invoice Raised' && canManage && (
-            <div className="rounded-xl bg-slate-50 p-6 text-center">
-              <p className="text-sm text-slate-500">Invoice raised. Send the tuk-tuk to the spare parts shop for pre-delivery service.</p>
-              <button className="btn-primary mt-4" onClick={openPreDelivery}><FiTruck /> Start Pre-Delivery Service</button>
+            <div className="space-y-3 mb-6">
+              {Object.keys(sale.accessories || {}).length > 0 && (
+                <div className="rounded-xl border border-slate-100 p-4 text-left">
+                  <p className="text-sm font-semibold text-slate-700 mb-2">Accessories Selected:</p>
+                  <div className="space-y-1.5">
+                    {Object.values(sale.accessories || {}).map((acc) => (
+                      <div key={acc.id} className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">{acc.name} × {acc.qty}</span>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs font-medium ${acc.included ? 'text-green-600' : 'text-slate-400'}`}>
+                            {acc.included ? 'Billed' : 'Complimentary'}
+                          </span>
+                          <span className="font-medium text-slate-700">{formatCurrency(acc.price * acc.qty)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="rounded-xl bg-slate-50 p-6 text-center">
+                <p className="text-sm text-slate-500">Invoice raised. Send the tuk-tuk to the spare parts shop for pre-delivery service.</p>
+                <button className="btn-primary mt-4" onClick={openPreDelivery}><FiTruck /> Start Pre-Delivery Service</button>
+              </div>
             </div>
           )}
 
